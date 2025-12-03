@@ -1,0 +1,30 @@
+[workspace]
+resolver = "2"
+members = [
+    "ttsctl",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/softwarewrighter/alltalk-client-rs"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+
+# Error handling
+anyhow = "1.0"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Async runtime
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "fs", "net"] }
+
+# Internal crates (from tts-spec component)
+tts-spec-model = { path = "../tts-spec/tts-spec-model" }
+tts-spec-script = { path = "../tts-spec/tts-spec-script" }
+tts-spec-layout = { path = "../tts-spec/tts-spec-layout" }
