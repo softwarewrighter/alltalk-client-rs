@@ -1,13 +1,13 @@
 [workspace]
 resolver = "2"
 members = [
-    "tts-web-ui",
-    "tts-web-server",
+    "crates/tts-web-ui",
+    "crates/tts-web-server",
 ]
 
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/softwarewrighter/alltalk-client-rs"
 
@@ -37,5 +37,5 @@ gloo-net = "0.6"
 gloo-timers = "0.3"
 
 # Internal crates (from tts-spec component)
-tts-spec-model = { path = "../tts-spec/tts-spec-model" }
-tts-spec-script = { path = "../tts-spec/tts-spec-script" }
+tts-spec-model = { path = "../tts-spec/crates/tts-spec-model" }
+tts-spec-script = { path = "../tts-spec/crates/tts-spec-script" }
