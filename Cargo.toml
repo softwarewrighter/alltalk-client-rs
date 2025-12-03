@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "components/tts-spec/tts-spec-model",
+    "components/tts-spec/tts-spec-script",
+    "components/tts-spec/tts-spec-layout",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/softwarewrighter/alltalk-client-rs"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+
+# Error handling
+thiserror = "1.0"
+
+# Internal crates
+tts-spec-model = { path = "components/tts-spec/tts-spec-model" }
+tts-spec-script = { path = "components/tts-spec/tts-spec-script" }
+tts-spec-layout = { path = "components/tts-spec/tts-spec-layout" }

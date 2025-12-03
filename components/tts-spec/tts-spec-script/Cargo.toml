@@ -1,0 +1,15 @@
+[package]
+name = "tts-spec-script"
+description = "Script parsing and validation for TTS specifications"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tts-spec-model.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+serde_json.workspace = true
+
+[dev-dependencies]

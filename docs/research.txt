@@ -1,0 +1,1373 @@
+Skip to content
+Chat history
+
+
+
+
+You said:
+I want to control one or more TTS models, served via: > https://github.com/erew123/alltalk_tts/tree/alltalkbeta using a Rust CLI (possibly with its own local Yew/WASM Web UI), using primarily: > https://github.com/huggingface/parler-tts and: > https://github.com/OHF-Voice/piper1-gpl and possibly: > https://github.com/Mamadou2727/CoquiTTS (but the latter's license restricts commercial use).  Two of these are commercial use friendly and two support voice cloning.  A problem I've seen with TTS is controlling pauses, emotions, non-verbal (breaths, laughs), etc. The Rust CLI I want to build should address this (via TTS API or in post processing) and is intended for two use case: narration of YouTube videos with a clone of my voice, and generation of podcast discussions using two or more synthetic voices (taking turns).  Read the README files for the links I provided and suggest an approach for using the allltalk_tts as a hub (running on an Arch Linux system with either an RTX3060-12G or an RTX5060-16G) with the Rust CLI running on a client, e.g., an M3 Macbook Pro.
+ChatGPT said:
+
+Thought for 1m 14s
+You’ve basically described a “TTS control plane”:
+
+Backend hub: AllTalk v2 on an Arch box with an RTX 3060/12G or 5060/16G, running Parler, Piper, (and possibly Coqui-based engines / XTTS, etc.)
+
+Front-end: A Rust CLI (plus optional Yew/WASM UI) on your M3 MBP that:
+
+Picks engines/voices,
+
+Enforces fine-grained pauses, emotions, and non-verbal cues,
+
+Generates YouTube narrations and multi-speaker podcasts.
+
+Below is an approach that keeps AllTalk as the engine hub and your Rust code as the “director / sequencer”.
+
+1. AllTalk as the hub
+Why AllTalk v2?
+AllTalk v2 is explicitly designed as a multi-engine front-end around several TTS systems:
+
+Supports XTTS, VITS, Piper, Parler, F5, and custom engines in a multi-engine manager.
+docs.sillytavern.app
++1
+
+Provides HTTP APIs (its own /api/tts-generate and an OpenAI-compatible /v1/audio/speech in v2) so 3rd-party apps can call it as a local TTS backend.
+GitHub
++2
+Home Assistant Community
++2
+
+Has RVC / voice conversion and voice cloning support and XTTS fine-tuning guides, which you can use to clone your own voice.
+GitHub
++1
+
+For your use case, it means:
+
+Your Arch GPU box runs AllTalk v2 and loads Parler / Piper / XTTS engines.
+
+Your Rust client talks only to AllTalk’s HTTP API, never directly to Python, Parler, Piper, etc.
+
+That keeps licensing & language boundaries clean: AllTalk (AGPL-3.0) + Python engines stay server-side; your Rust CLI (MIT/Apache) is a separate network client.
+
+AllTalk v2: key API surfaces you’ll use
+From the AllTalk README and API docs (v1 part, still valid for v2) you get:
+GitHub
+
+Health & introspection:
+
+GET /api/ready – service up?
+
+GET /api/voices – list voices.
+
+GET /api/currentsettings – which model/engine is currently loaded.
+
+Engine/tuning toggles:
+
+POST /api/reload?tts_method=... – switch between internal engines (XTTSv2, Piper, Parler, etc.).
+
+POST /api/deepspeed?new_deepspeed_value=True|False
+
+POST /api/lowvramsetting?new_low_vram_value=True|False
+
+Core synthesis:
+
+POST /api/tts-generate – standard “generate WAV” endpoint, returns a file URL & path.
+
+POST /api/tts-generate-streaming – streaming audio endpoint (no narration split).
+
+For v2, the wiki also mentions an OpenAI-compatible API endpoint, used by Home Assistant and others.
+Home Assistant Community
++1
+
+You can target that for future-proofing, but the /api/tts-generate endpoint gives you more AllTalk-specific knobs (narrator, character, etc.) and is well documented.
+
+Engine configuration (Parler + Piper)
+AllTalk v2 keeps engine definitions in tts_engines.json and the Multi Engine Manager section of the wiki. A typical entry holds the engine id ("piper", "parler"), model path(s), and options.
+GitHub
++2
+GitHub
++2
+
+You’ll:
+
+Install Parler and Piper into the AllTalk v2 env:
+
+Parler: pip install git+https://github.com/huggingface/parler-tts.git (Apache-2.0)
+GitHub
++1
+
+Piper: pip install piper-tts or use the included setup scripts (GPL-3).
+GitHub
++1
+
+Any Coqui/XTTS bits via AllTalk’s existing requirements.
+Coqui TTS
++1
+
+Enable them in tts_engines.json so the Multi Engine Manager knows about:
+
+engine_id = "parler" with default model (e.g. parler-tts-mini-v1 or expresso).
+GitHub
++1
+
+engine_id = "piper" with default voice(s) and voice directory.
+
+Use AllTalk’s engine switching API or OpenAI-API “voice/model” mappings to choose engine per request.
+
+Licensing sanity check
+AllTalk – AGPL-3.0. Running it privately to generate audio for your own content is fine; you’re not re-hosting it as a network service for third parties.
+GitHub
+
+Parler-TTS – Apache-2.0, commercial-friendly, very nice.
+GitHub
++1
+
+Piper – GPL-3.0; but again, used as a server-side tool under AllTalk; your Rust client only speaks HTTP and can be MIT/Apache.
+GitHub
++1
+
+Coqui TTS / XTTS – base project is MPL-2.0, but some hosted offerings / forks have extra restrictions; Mamadou’s fork you mentioned likely adds non-commercial terms.
+GitHub
++1
+
+As long as you’re just using these locally to render WAVs you own, your YouTube/podcast audio is not “linking” to their code, so you’re fine commercially. You’d only need to get strict about redistribution if you ship AllTalk or those engines as part of your own product.
+
+2. Rust-side architecture
+Think of the Rust side as three layers:
+
+Core library crate: tts_orchestrator
+
+CLI binary: ttsctl
+
+Optional Yew/WASM UI: tts-orchestrator-ui (talks to the CLI or a small HTTP server in the same binary).
+
+2.1 Core library (tts_orchestrator)
+Responsibilities:
+
+Config:
+
+Where is AllTalk? (base_url, api_key if you wrap behind a proxy, etc.)
+
+Engine profiles: parler_mike, parler_female_host, piper_system_voice, etc.
+
+Per-use-case presets (YouTube narration vs podcast dialogue).
+
+HTTP client:
+
+reqwest + serde models for:
+
+/api/ready, /api/voices, /api/currentsettings
+
+/api/reload, /api/deepspeed, /api/lowvramsetting
+
+/api/tts-generate and optionally /api/tts-generate-streaming and/or OpenAI /v1/audio/speech.
+
+Script model: a neutral “timeline” representation of your content:
+
+struct SegmentId(pub String);
+
+enum NonVerbal {
+    Breath,
+    Laugh,
+    Sigh,
+    Custom(String), // map to a WAV file or an engine prompt
+}
+
+struct Segment {
+    id: SegmentId,
+    speaker: String,         // "mike", "guest1", "narrator"
+    engine: EngineKind,      // Parler, Piper, XTTS, etc.
+    text: String,            // spoken text (clean)
+    emotion: Option<String>, // "excited", "sad", "whispering"
+    style_tags: Vec<String>, // "fast", "slow", "question", etc.
+    pause_before_ms: u32,
+    pause_after_ms: u32,
+    nonverbal: Vec<NonVerbal>,
+}
+
+struct Script {
+    sample_rate: u32,
+    segments: Vec<Segment>,
+}
+Engine adapters: map a Segment → concrete AllTalk HTTP request.
+
+Parler adapter:
+
+Build a description prompt that encodes emotion, speed, nonverbal hints, etc.:
+
+“Mike’s voice, calm, mid-tempo, clear audio, occasionally laughing softly.” 
+GitHub
++1
+
+Let AllTalk call Parler under the hood with description + prompt_input_ids.
+
+Piper adapter:
+
+Use Piper for “flat” or system voices; rely on punctuation and chunk boundaries for prosody.
+
+AllTalk’s FAQ notes which features Piper supports (e.g. speed, no streaming).
+GitHub
++1
+
+XTTS / Coqui adapter (if you use voice clones via AllTalk):
+
+Choose cloned voices via engine-specific ids defined in AllTalk.
+
+Audio post-processing:
+
+Use hound or lewton/symphonia to:
+
+Read returned WAVs (or stream→buffer).
+
+Insert precise silence chunks (pause_before/after in ms).
+
+Interleave pre-recorded non-verbal assets (laugh.wav, breath_in.wav) you’ve generated separately.
+
+Export:
+
+One mono/stereo mix for YouTube narration,
+
+Or multi-track: one WAV per speaker for podcast post-mix.
+
+This layer is where you solve “pauses and non-verbals” independent of engine quirks.
+
+2.2 CLI (ttsctl)
+Provide subcommands that operate on local script/transcript files:
+
+ttsctl ping – hit /api/ready.
+
+ttsctl list-engines – show engines from AllTalk (based on tts_engines.json + /api/currentsettings).
+
+ttsctl list-voices [--engine parler] – list available voices/clone profiles.
+
+ttsctl render-line --engine parler --speaker mike --emotion calm --pause-after 500 "Hello world" – tiny building block.
+
+ttsctl render-script script.yaml --out output.wav --mix mono|multitrack – main workflow.
+
+Script file example (YAML/JSON):
+
+sample_rate: 24000
+segments:
+  - id: intro
+    speaker: mike
+    engine: parler
+    text: "Welcome back to the channel. Today we're going to build a TTS control plane in Rust."
+    emotion: "confident"
+    style_tags: ["medium_speed"]
+    pause_before_ms: 0
+    pause_after_ms: 750
+
+  - id: cohost_greeting
+    speaker: cohost_f
+    engine: parler
+    text: "And I'll be asking all the annoying questions so you don't have to."
+    emotion: "playful"
+    style_tags: ["smiling"]
+    pause_before_ms: 250
+    pause_after_ms: 500
+    nonverbal: ["Laugh"]
+The CLI:
+
+Parses this into Script.
+
+Groups segments by engine → minimises engine switches.
+
+Orchestrates calls to AllTalk (possibly concurrently with a tokio runtime).
+
+Concatenates and writes final WAVs.
+
+2.3 Optional Yew / WASM UI
+You can embed a small HTTP server in the same binary:
+
+ttsctl serve --port 8080
+
+Starts a tiny REST/WebSocket API:
+
+GET /scripts, GET /engines, POST /render, etc.
+
+A Yew SPA compiled to WASM served from /ui/:
+
+Script editor:
+
+Multi-speaker timeline with rows per speaker,
+
+Columns for text, emotion, pause before/after, engine.
+
+“Preview” button:
+
+Renders only selected segments, streams audio via /api/tts-generate-streaming or cached WAVs.
+
+“Export” button:
+
+Calls /render for the full script.
+
+This gives you a local web console for designing podcasts / narrations while the heavy lifting happens on the GPU box.
+
+3. Handling pauses, emotions, and non-verbals
+This is the core pain point you called out. I’d handle it in three layers:
+
+3.1 Text-level markup → engine-specific prompts
+Create your own tiny markup / attribute system instead of relying on (pause) etc., which you’ve already seen fail.
+
+For example, let scripts contain tags like:
+
+[pause:500]
+
+[breath:soft]
+
+[laugh:short]
+
+[emotion:excited], [style:whisper]
+
+Your Rust pipeline:
+
+Strip tags from the text sent to the engine (so you don’t hear “pause” or the literal tag).
+
+Convert them into:
+
+Explicit silence insertion in the timeline.
+
+Prompt hints, especially for Parler:
+
+"[emotion:excited]" → “Mike’s voice, excited and energetic but still clear, very close microphone, very clear audio…”
+GitHub
++1
+
+For engines that support punctuation-driven prosody (Parler, XTTS, many TTS models), optionally add commas and full stops in strategic places (Parler explicitly recommends commas for prosody control).
+GitHub
+
+You keep the script language engine-agnostic, and encode engine specifics in adapter code.
+
+3.2 Timeline-level silence (post-processing)
+Don’t rely on the engine’s idea of a “comma-sized” pause; make pauses deterministic:
+
+After each segment’s TTS result arrives, your audio pipeline:
+
+Appends pause_before_ms worth of silence,
+
+Appends the TTS audio,
+
+Appends pause_after_ms worth of silence.
+
+You can generate silence as arrays of zeros at the target sample rate:
+
+fn silence_samples(duration_ms: u32, sample_rate: u32) -> Vec<i16> {
+    let total_samples = (duration_ms as u64 * sample_rate as u64 / 1000) as usize;
+    vec![0i16; total_samples]
+}
+For podcasts, this gives you:
+
+Precisely staggered turn-taking (no awkward overlaps),
+
+Exact control over “radio-style” pacing: long dramatic pauses, fast back-and-forth, etc.
+
+3.3 Non-verbal sounds
+Most TTS engines do not reliably produce breaths/laughs via markup; Parler is better than others here (voice description with “laughing gently” etc.), but it’s still stochastic.
+Reddit
++1
+
+I’d treat non-verbals as sound assets:
+
+Use whichever engine (XTTS / Piper / Parler / Coqui) + RVC to generate a small library:
+
+mike_breath_soft_01.wav
+
+mike_laugh_short_01.wav
+
+guest_laugh_short_01.wav
+
+Reference them in scripts as [sfx:mike_laugh_short_01].
+
+When your pipeline sees a NonVerbal::Custom("mike_laugh_short_01"), it:
+
+Loads the asset WAV,
+
+Inserts it into the timeline (with optional lead-in/lead-out silence),
+
+Optionally randomises between multiple variants to avoid repetition.
+
+That decouples verbal TTS generation from non-verbal SFX and gives you frame-level control, independent of engine bugs.
+
+4. Engine choices by use case
+Given your two primary use cases:
+
+4.1 Narration of your own YouTube videos (voice clone)
+Backend engine: XTTS (via AllTalk) + RVC for your voice clone, or Parler finetuned on your voice if you go that route.
+docs.coqui.ai
++1
+
+Pros:
+
+XTTS: strong cross-language cloning, RVC pipeline already integrated into AllTalk.
+
+Parler: very fine prosody control via description, plus Apache-2.0 license.
+GitHub
++1
+
+Flow:
+
+Write narration as a linear script with tags ([pause:500], etc.).
+
+Rust CLI maps each segment to engine=parler or engine=xtts.
+
+Generate single-speaker WAV + optional subtitles (AllTalk can generate SRT from its WAVs; you can also align text via your own tools).
+GitHub
+
+4.2 Multi-voice podcasts
+Engines:
+
+Parler for expressive co-hosts / guests, since it allows very rich description: “A male host, warm and relaxed, speaking slowly…”
+GitHub
++1
+
+Piper for “system” or “narrator” voices where clarity and speed matter more than nuance (e.g. reading code snippets, bullet points).
+GitHub
++1
+
+Flow:
+
+Script multi-speaker dialogue in YAML/Markdown.
+
+Rust orchestrator builds a timeline with per-speaker segments.
+
+Engine selection is per segment:
+
+Host segments → Parler with host style,
+
+“System: error message text” → Piper system voice,
+
+Quick disclaimers → fast Piper voice.
+
+Render multi-track WAVs: host.wav, guest.wav, system.wav.
+
+Import into DAW (Reaper, Ardour, etc.) for final polish.
+
+5. Practical setup steps
+On the Arch GPU box
+Install AllTalk v2 (alltalkbeta branch) and follow the v2 quickstart.
+GitHub
++2
+GitHub
++2
+
+Enable:
+
+Multi Engine Manager,
+
+Parler and Piper in tts_engines.json.
+
+Install engine dependencies:
+
+pip install git+https://github.com/huggingface/parler-tts.git
+
+pip install piper-tts
+
+Follow AllTalk’s “Install – LINUX – Requirements and DeepSpeed” wiki.
+GitHub
++1
+
+Start AllTalk with GPU support and (optionally) DeepSpeed / low-VRAM toggles for the 3060/5060.
+
+On the M3 MacBook Pro
+Create a Rust workspace with:
+
+tts_orchestrator (lib),
+
+ttsctl (bin),
+
+tts-orchestrator-ui (Yew).
+
+Implement:
+
+Minimal /api/ready + /api/tts-generate client first.
+
+A simple “render one line with 500ms pause afterwards” CLI subcommand.
+
+Add script support:
+
+Load YAML/JSON, map to segments, concatenate WAVs.
+
+Then add:
+
+Parler-specific description builder,
+
+SFX insertion,
+
+Optional local web UI.
+
+6. Pros, cons, and alternatives
+Pros of “AllTalk hub + Rust orchestrator”
+Single backend to maintain: AllTalk handles engine integration, GPU quirks, RVC, and new engines as they appear.
+docs.sillytavern.app
++1
+
+Rust stays engine-agnostic: you don’t need FFI bindings to each engine.
+
+Precise, deterministic timing driven by your timeline model.
+
+Easy to add future engines: when AllTalk supports, say, a Kokoro or new HF TTS, you just add new EngineKind variants.
+
+Cons / risks
+You’re coupled to AllTalk’s HTTP API and engine mapping. If its schema changes, you update your client.
+
+You inherit AllTalk’s “quirks” around chunking, text filtering, etc., though using text_filtering=none and doing your own markup mitigates that.
+GitHub
+
+Non-verbal sounds are still hacky if you try to generate them via TTS; using pre-baked SFX is more robust but less “end-to-end neural”.
+
+Alternative: direct Rust bindings to Parler/Piper/Coqui
+You could:
+
+Wrap Parler and Piper via pyo3 or run them as separate micro-services, bypassing AllTalk.
+
+Pros:
+
+Full control, no dependency on AllTalk’s roadmap.
+
+Cons:
+
+You re-implement multi-engine management, GPU scheduling, RVC / XTTS integration – basically re-creating a large chunk of AllTalk yourself.
+
+Given what you described, using AllTalk v2 as the TTS “kernel” and focusing your Rust work on:
+
+Timeline / script modeling,
+
+pause + non-verbal control,
+
+multi-speaker orchestration,
+
+gives you the most leverage for the least Python yak-shaving.
+
+If you’d like, next step I can sketch an initial Rust crate layout (modules, traits, and a first pass at an AllTalkClient and Script parser) that you can drop straight into a workspace.
+
+You said:
+When sketching out the Rust layout, I have a particular architectural and physical design in mind, with constraints on function LOC, module function counts, crate module counts, and use of mutliple top-level "components" each with a cargo workspace of multiple crates.  I'm shooting for a max "spread" of 4: at most 4 Rust functions per Rust module, <5 modules per crate, <5 crates per "component" (no limit on components per Rust git repo.  So it is important to structure traits and shared code, strict dependency leveling (data/structs depend on nothing--lowest level), and to group related things at each level.  Further, to allow more concise code, judicous use of Rust macros, pure-functions, separate functions that extract info from passed state read-only from functions that change the passed state.  Avoid too many impl functions; instead pass struct instance to pure functions.  The goal is to end up with small, easily documented/tested/modified units of code and avoid any large .rs files (lib.rs and mod.rs should not have functions in them).  Tests, to the extent possible, can be in separate files.  Integration tests can be in separate components.
+ChatGPT said:
+
+Thought for 19s
+You want:
+
+AllTalk as a TTS hub on an Arch + RTX box.
+
+A Rust “control plane” (CLI + optional Yew UI) on your Mac.
+
+And you want the Rust codebase to obey strict smallness & layering rules:
+
+≤ 4 functions per Rust module
+
+< 5 modules per crate
+
+< 5 crates per “component” (workspace)
+
+lib.rs / mod.rs have no functions
+
+“Data first” dependency leveling; pure functions separated from state-changing ones; minimal impl methods.
+
+Below is a layout that fits those constraints and still gives you a clean pipeline:
+Script → Engine calls via AllTalk → Audio timeline → Final WAV(s).
+
+1. High-level architecture
+Let’s treat your repo as multiple components (each a Cargo workspace):
+
+tts-spec – data + script DSL (lowest level)
+
+tts-engine – AllTalk HTTP client + engine abstraction
+
+tts-render – audio/timeline composition
+
+tts-apps – CLIs + small server + Yew UI
+
+Strict dependency layering:
+
+tts-spec      (no internal deps)
+↓
+tts-engine    (depends on tts-spec)
+↓
+tts-render    (depends on tts-spec, tts-engine)
+↓
+tts-apps      (depends on tts-spec, tts-engine, tts-render)
+No component depends “upwards”; no cycles.
+
+2. Component 1 – tts-spec (data + script DSL)
+Workspace: components/tts-spec/
+
+Crates (≤4):
+
+tts-spec-model – core data types (no external deps except serde).
+
+tts-spec-script – script DSL parsing/validation (YAML/JSON/whatever).
+
+tts-spec-layout – logical timeline layout (no audio yet, just “segments on a timeline”).
+
+2.1 tts-spec-model crate
+Modules (<5, no functions in lib.rs):
+
+types.rs – core structs / enums / newtypes.
+
+macros.rs – small helper macros (e.g., newtype helpers).
+
+errors.rs – error enums.
+
+types.rs (≤4 functions: zero is fine here)
+Data only; no functions needed:
+
+// components/tts-spec/tts-spec-model/src/types.rs
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SegmentId(pub String);
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum EngineKind {
+    Parler,
+    Piper,
+    Xtts,
+    Other(String),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum NonVerbalKind {
+    Breath,
+    Laugh,
+    Sfx(String), // named asset
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NonVerbal {
+    pub kind: NonVerbalKind,
+    pub offset_ms: u32, // relative to segment start
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Segment {
+    pub id: SegmentId,
+    pub speaker: String,
+    pub engine: EngineKind,
+    pub text: String,
+    pub emotion: Option<String>,
+    pub style_tags: Vec<String>,
+    pub pause_before_ms: u32,
+    pub pause_after_ms: u32,
+    pub nonverbals: Vec<NonVerbal>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct Script {
+    pub sample_rate: u32,
+    pub segments: Vec<Segment>,
+}
+No functions; satisfies your “data at the bottom” rule.
+
+errors.rs
+Define errors, again no real need for more than 1–2 helper fns (or none):
+
+// components/tts-spec/tts-spec-model/src/errors.rs
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ScriptError {
+    #[error("Parse error: {0}")]
+    Parse(String),
+    #[error("Validation error: {0}")]
+    Validation(String),
+}
+No functions.
+
+2.2 tts-spec-script crate
+Responsibilities:
+
+Parse Script from YAML/JSON.
+
+Validate Script structure (no overlapping IDs, etc.).
+
+Emit YAML/JSON.
+
+Modules (<5):
+
+parse.rs
+
+validate.rs
+
+format.rs
+
+tests/ (separate files)
+
+parse.rs (4 functions max; all pure)
+// components/tts-spec/tts-spec-script/src/parse.rs
+use std::io::Read;
+use tts_spec_model::{Script, ScriptError};
+
+pub fn from_yaml_str(src: &str) -> Result<Script, ScriptError> {
+    serde_yaml::from_str::<Script>(src).map_err(|e| ScriptError::Parse(e.to_string()))
+}
+
+pub fn from_json_str(src: &str) -> Result<Script, ScriptError> {
+    serde_json::from_str::<Script>(src).map_err(|e| ScriptError::Parse(e.to_string()))
+}
+
+pub fn from_yaml_reader<R: Read>(mut reader: R) -> Result<Script, ScriptError> {
+    let mut buf = String::new();
+    reader.read_to_string(&mut buf).map_err(|e| ScriptError::Parse(e.to_string()))?;
+    from_yaml_str(&buf)
+}
+
+pub fn from_json_reader<R: Read>(mut reader: R) -> Result<Script, ScriptError> {
+    let mut buf = String::new();
+    reader.read_to_string(&mut buf).map_err(|e| ScriptError::Parse(e.to_string()))?;
+    from_json_str(&buf)
+}
+That’s exactly 4 functions.
+
+validate.rs (≤4; pure)
+// components/tts-spec/tts-spec-script/src/validate.rs
+use std::collections::HashSet;
+use tts_spec_model::{Script, ScriptError, SegmentId};
+
+pub fn validate(script: &Script) -> Result<(), ScriptError> {
+    validate_segment_ids_unique(script)?;
+    validate_sample_rate(script)?;
+    Ok(())
+}
+
+fn validate_segment_ids_unique(script: &Script) -> Result<(), ScriptError> {
+    let mut seen: HashSet<&str> = HashSet::new();
+    for seg in &script.segments {
+        let id: &str = &seg.id.0;
+        if !seen.insert(id) {
+            return Err(ScriptError::Validation(format!("Duplicate segment id: {id}")));
+        }
+    }
+    Ok(())
+}
+
+fn validate_sample_rate(script: &Script) -> Result<(), ScriptError> {
+    if script.sample_rate == 0 {
+        return Err(ScriptError::Validation("sample_rate must be > 0".into()));
+    }
+    Ok(())
+}
+
+// 4th function reserved for future rule
+pub fn validate_for_engine(script: &Script, _engine: &str) -> Result<(), ScriptError> {
+    // stub for engine-specific checks
+    validate(script)
+}
+format.rs (≤4; pure)
+// components/tts-spec/tts-spec-script/src/format.rs
+use tts_spec_model::{Script, ScriptError};
+
+pub fn to_yaml(script: &Script) -> Result<String, ScriptError> {
+    serde_yaml::to_string(script).map_err(|e| ScriptError::Parse(e.to_string()))
+}
+
+pub fn to_json(script: &Script) -> Result<String, ScriptError> {
+    serde_json::to_string_pretty(script).map_err(|e| ScriptError::Parse(e.to_string()))
+}
+
+// 2 more fns reserved if you want
+pub fn to_minified_json(script: &Script) -> Result<String, ScriptError> {
+    serde_json::to_string(script).map_err(|e| ScriptError::Parse(e.to_string()))
+}
+
+pub fn to_pretty_yaml(script: &Script) -> Result<String, ScriptError> {
+    to_yaml(script) // alias; or use specific options later
+}
+2.3 tts-spec-layout crate
+Logic-only timeline layer:
+
+Turn Script segments into an ordered timeline (sequence of “events” – silence, TTS, SFX).
+
+No audio I/O, just layout.
+
+Modules:
+
+events.rs – data types
+
+build.rs – pure functions to build events
+
+events.rs (no fns needed)
+use tts_spec_model::{SegmentId, NonVerbalKind};
+
+#[derive(Clone, Debug)]
+pub enum TimelineEventKind {
+    Silence { duration_ms: u32 },
+    TtsSegment { segment_id: SegmentId },
+    NonVerbal { kind: NonVerbalKind, asset_name: Option<String> },
+}
+
+#[derive(Clone, Debug)]
+pub struct TimelineEvent {
+    pub order_index: u32,
+    pub at_ms: u64,
+    pub kind: TimelineEventKind,
+}
+build.rs (≤4 pure functions)
+use tts_spec_model::Script;
+use crate::events::{TimelineEvent, TimelineEventKind};
+
+pub fn build_timeline(script: &Script) -> Vec<TimelineEvent> {
+    let mut events = Vec::new();
+    let mut current_ms: u64 = 0;
+
+    for (idx, seg) in script.segments.iter().enumerate() {
+        push_pause(&mut events, &mut current_ms, idx as u32, seg.pause_before_ms);
+        push_segment(&mut events, &mut current_ms, idx as u32, seg.id.0.clone());
+        push_pause(&mut events, &mut current_ms, idx as u32, seg.pause_after_ms);
+    }
+
+    events
+}
+
+fn push_pause(events: &mut Vec<TimelineEvent>, current_ms: &mut u64, idx: u32, duration_ms: u32) {
+    if duration_ms == 0 {
+        return;
+    }
+    let event = TimelineEvent {
+        order_index: idx,
+        at_ms: *current_ms,
+        kind: TimelineEventKind::Silence { duration_ms },
+    };
+    *current_ms += duration_ms as u64;
+    events.push(event);
+}
+
+fn push_segment(
+    events: &mut Vec<TimelineEvent>,
+    current_ms: &mut u64,
+    idx: u32,
+    id: String,
+) {
+    let event = TimelineEvent {
+        order_index: idx,
+        at_ms: *current_ms,
+        kind: TimelineEventKind::TtsSegment { segment_id: SegmentId(id) },
+    };
+    events.push(event);
+    // actual audio duration is unknown here; will be resolved later
+}
+
+pub fn estimate_duration_ms(events: &[TimelineEvent]) -> u64 {
+    events
+        .iter()
+        .filter_map(|e| match &e.kind {
+            TimelineEventKind::Silence { duration_ms } => Some(*duration_ms as u64),
+            _ => None,
+        })
+        .sum()
+}
+4 functions exactly.
+
+3. Component 2 – tts-engine (AllTalk client + traits)
+Workspace: components/tts-engine/
+
+Crates (≤4):
+
+tts-engine-api – HTTP types + traits (engine abstraction).
+
+tts-engine-alltalk – concrete AllTalk HTTP client implementation.
+
+3.1 tts-engine-api crate
+Modules:
+
+traits.rs
+
+requests.rs
+
+responses.rs
+
+traits.rs
+use async_trait::async_trait;
+use tts_spec_model::{Segment, ScriptError};
+
+#[async_trait]
+pub trait TtsEngine {
+    async fn synthesize_segment(&self, segment: &Segment) -> Result<Vec<u8>, ScriptError>;
+    async fn list_voices(&self) -> Result<Vec<String>, ScriptError>;
+}
+
+#[async_trait]
+pub trait TtsHub {
+    async fn synthesize_script(&self, segments: &[Segment]) -> Result<Vec<Vec<u8>>, ScriptError>;
+    async fn switch_engine(&self, engine_name: &str) -> Result<(), ScriptError>;
+}
+2 trait “functions” each; well under the limits.
+
+3.2 tts-engine-alltalk crate
+Modules:
+
+client.rs – AllTalkClient struct + pure helpers.
+
+http_ops.rs – async HTTP functions (side-effecting).
+
+mapping.rs – mapping Segment → AllTalk request.
+
+client.rs (≤4 fns, some pure)
+use url::Url;
+
+#[derive(Clone, Debug)]
+pub struct AllTalkConfig {
+    pub base_url: Url,
+}
+
+#[derive(Clone)]
+pub struct AllTalkClient {
+    cfg: AllTalkConfig,
+}
+
+pub fn new_client(base_url: &str) -> Result<AllTalkClient, url::ParseError> {
+    let url = Url::parse(base_url)?;
+    Ok(AllTalkClient { cfg: AllTalkConfig { base_url: url } })
+}
+
+pub fn base_url(client: &AllTalkClient) -> &Url {
+    &client.cfg.base_url
+}
+
+// Reserve 2 more helper fns if needed (e.g., path building)
+pub fn tts_generate_url(client: &AllTalkClient) -> Url {
+    client.cfg.base_url.join("/api/tts-generate").unwrap()
+}
+
+pub fn ready_url(client: &AllTalkClient) -> Url {
+    client.cfg.base_url.join("/api/ready").unwrap()
+}
+http_ops.rs (≤4 async fns; side-effecting)
+use reqwest::Client;
+use tts_spec_model::{Segment, ScriptError};
+use crate::client::{AllTalkClient, tts_generate_url, ready_url};
+
+pub async fn check_ready(client: &AllTalkClient) -> Result<bool, ScriptError> {
+    let http = Client::new();
+    let resp = http.get(ready_url(client))
+        .send().await
+        .map_err(|e| ScriptError::Parse(e.to_string()))?;
+    Ok(resp.status().is_success())
+}
+
+pub async fn synthesize_segment_wav(
+    client: &AllTalkClient,
+    segment: &Segment,
+) -> Result<Vec<u8>, ScriptError> {
+    let http = Client::new();
+    let url = tts_generate_url(client);
+    let body = crate::mapping::segment_to_alltalk_request(segment);
+    let resp = http.post(url)
+        .json(&body)
+        .send().await
+        .map_err(|e| ScriptError::Parse(e.to_string()))?;
+    let bytes = resp.bytes().await.map_err(|e| ScriptError::Parse(e.to_string()))?;
+    Ok(bytes.to_vec())
+}
+
+pub async fn list_voices(
+    _client: &AllTalkClient,
+) -> Result<Vec<String>, ScriptError> {
+    // can call /api/voices when you’re ready
+    Ok(Vec::new())
+}
+
+pub async fn switch_engine(
+    _client: &AllTalkClient,
+    _engine_name: &str,
+) -> Result<(), ScriptError> {
+    // wrap /api/reload or Multi Engine Manager (future)
+    Ok(())
+}
+mapping.rs (≤4 pure fns)
+use serde::Serialize;
+use tts_spec_model::Segment;
+
+#[derive(Serialize)]
+pub struct AllTalkTtsRequest<'a> {
+    pub text: &'a str,
+    pub voice: &'a str,
+    pub tts_method: &'a str,
+    pub text_filtering: &'a str,
+}
+
+pub fn segment_to_alltalk_request(seg: &Segment) -> AllTalkTtsRequest<'_> {
+    AllTalkTtsRequest {
+        text: &seg.text,
+        voice: &seg.speaker,     // later map to actual voice IDs
+        tts_method: engine_to_method(&seg.engine),
+        text_filtering: "none",  // you manage markup yourself
+    }
+}
+
+use tts_spec_model::EngineKind;
+
+pub fn engine_to_method(engine: &EngineKind) -> &'static str {
+    match engine {
+        EngineKind::Parler => "parler",
+        EngineKind::Piper => "piper",
+        EngineKind::Xtts => "xtts",
+        EngineKind::Other(_) => "xtts",
+    }
+}
+
+// 4th helper reserved
+pub fn default_voice_for_speaker(speaker: &str) -> &str {
+    speaker
+}
+4. Component 3 – tts-render (timeline → audio)
+Workspace: components/tts-render/
+
+Crates:
+
+tts-render-core – pure-ish operations on sample buffers.
+
+tts-render-pipeline – orchestrates engine calls + core + I/O.
+
+4.1 tts-render-core
+Modules:
+
+silence.rs – pure silence generation.
+
+concat.rs – pure buffer concatenation.
+
+wav_io.rs – read/write WAV using hound.
+
+silence.rs (≤4 pure fns)
+pub fn silence_i16_mono(duration_ms: u32, sample_rate: u32) -> Vec<i16> {
+    let total_samples = duration_ms as u64 * sample_rate as u64 / 1000;
+    vec![0i16; total_samples as usize]
+}
+
+pub fn silence_f32_mono(duration_ms: u32, sample_rate: u32) -> Vec<f32> {
+    let total_samples = duration_ms as u64 * sample_rate as u64 / 1000;
+    vec![0.0_f32; total_samples as usize]
+}
+
+// 2 extra variants reserved if needed (stereo etc.)
+pub fn silence_i16_stereo(duration_ms: u32, sample_rate: u32) -> Vec<i16> {
+    let mono = silence_i16_mono(duration_ms, sample_rate);
+    let mut stereo = Vec::with_capacity(mono.len() * 2);
+    for s in mono {
+        stereo.push(s);
+        stereo.push(s);
+    }
+    stereo
+}
+
+pub fn silence_f32_stereo(duration_ms: u32, sample_rate: u32) -> Vec<f32> {
+    let mono = silence_f32_mono(duration_ms, sample_rate);
+    let mut stereo = Vec::with_capacity(mono.len() * 2);
+    for s in mono {
+        stereo.push(s);
+        stereo.push(s);
+    }
+    stereo
+}
+concat.rs (≤4 pure fns)
+pub fn concat_i16(buffers: &[Vec<i16>]) -> Vec<i16> {
+    let total: usize = buffers.iter().map(|b| b.len()).sum();
+    let mut out = Vec::with_capacity(total);
+    for b in buffers {
+        out.extend_from_slice(b);
+    }
+    out
+}
+
+pub fn concat_f32(buffers: &[Vec<f32>]) -> Vec<f32> {
+    let total: usize = buffers.iter().map(|b| b.len()).sum();
+    let mut out = Vec::with_capacity(total);
+    for b in buffers {
+        out.extend_from_slice(b);
+    }
+    out
+}
+
+// 2 reserved for interleaving multi-track, etc.
+pub fn interleave_stereo_i16(left: &[i16], right: &[i16]) -> Vec<i16> {
+    let len = left.len().min(right.len());
+    let mut out = Vec::with_capacity(len * 2);
+    for i in 0..len {
+        out.push(left[i]);
+        out.push(right[i]);
+    }
+    out
+}
+
+pub fn interleave_stereo_f32(left: &[f32], right: &[f32]) -> Vec<f32> {
+    let len = left.len().min(right.len());
+    let mut out = Vec::with_capacity(len * 2);
+    for i in 0..len {
+        out.push(left[i]);
+        out.push(right[i]);
+    }
+    out
+}
+wav_io.rs (≤4 side-effecting fns)
+use hound::{WavWriter, WavReader, WavSpec, SampleFormat};
+use std::path::Path;
+use std::fs::File;
+use std::io::BufWriter;
+
+pub fn write_i16_mono<P: AsRef<Path>>(
+    path: P,
+    samples: &[i16],
+    sample_rate: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let spec = WavSpec {
+        channels: 1,
+        sample_rate,
+        bits_per_sample: 16,
+        sample_format: SampleFormat::Int,
+    };
+    let writer = WavWriter::create(path, spec)?;
+    write_samples_i16(writer, samples)
+}
+
+fn write_samples_i16(
+    mut writer: WavWriter<BufWriter<File>>,
+    samples: &[i16],
+) -> Result<(), Box<dyn std::error::Error>> {
+    for s in samples {
+        writer.write_sample(*s)?;
+    }
+    writer.finalize()?;
+    Ok(())
+}
+
+pub fn read_i16_mono<P: AsRef<Path>>(
+    path: P,
+) -> Result<(u32, Vec<i16>), Box<dyn std::error::Error>> {
+    let mut reader = WavReader::open(path)?;
+    let spec = reader.spec();
+    let samples: Result<Vec<i16>, _> = reader.samples::<i16>().collect();
+    Ok((spec.sample_rate, samples?))
+}
+
+// 4th reserved for stereo or floats later
+pub fn write_i16_stereo<P: AsRef<Path>>(
+    path: P,
+    samples: &[i16],
+    sample_rate: u32,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // similar to mono
+    write_i16_mono(path, samples, sample_rate)
+}
+4.2 tts-render-pipeline
+This crate ties together:
+
+Script + TimelineEvents
+
+AllTalkClient → per-segment WAV bytes
+
+silence + concat + wav_io to produce final WAVs.
+
+Modules:
+
+state.rs – pipeline state struct.
+
+build.rs – pure-ish orchestration logic (no I/O).
+
+exec.rs – async pipeline function that calls engines and writes files.
+
+state.rs (data-only)
+use tts_spec_model::{Script, Segment};
+use tts_spec_layout::events::TimelineEvent;
+
+pub struct PipelineState<'a> {
+    pub script: &'a Script,
+    pub events: Vec<TimelineEvent>,
+    pub sample_rate: u32,
+}
+build.rs (≤4 pure-ish fns, no I/O)
+use tts_spec_model::Script;
+use tts_spec_layout::{build_timeline, events::TimelineEvent};
+use crate::state::PipelineState;
+
+pub fn new_state<'a>(script: &'a Script) -> PipelineState<'a> {
+    let events = build_timeline(script);
+    PipelineState {
+        script,
+        events,
+        sample_rate: script.sample_rate,
+    }
+}
+
+pub fn segments_in_order<'a>(
+    state: &'a PipelineState<'a>,
+) -> Vec<&'a tts_spec_model::Segment> {
+    state.script.segments.iter().collect()
+}
+
+// 2 helper fns reserved for mapping events to tasks, etc.
+pub fn event_count(state: &PipelineState<'_>) -> usize {
+    state.events.len()
+}
+
+pub fn total_silence_ms(state: &PipelineState<'_>) -> u64 {
+    tts_spec_layout::estimate_duration_ms(&state.events)
+}
+exec.rs (≤4 async fns; side-effecting)
+use crate::state::PipelineState;
+use tts_engine_alltalk::client::AllTalkClient;
+use tts_engine_alltalk::http_ops::synthesize_segment_wav;
+use tts_spec_model::{ScriptError, Segment};
+use tts_render_core::{silence::silence_i16_mono, concat::concat_i16, wav_io::write_i16_mono};
+use std::path::Path;
+
+pub async fn render_to_wav<P: AsRef<Path>>(
+    client: &AllTalkClient,
+    state: &PipelineState<'_>,
+    out_path: P,
+) -> Result<(), ScriptError> {
+    let mut buffers: Vec<Vec<i16>> = Vec::new();
+
+    for seg in &state.script.segments {
+        push_segment_with_pauses(client, &mut buffers, state.sample_rate, seg).await?;
+    }
+
+    let final_buf = concat_i16(&buffers);
+    write_i16_mono(out_path, &final_buf, state.sample_rate)
+        .map_err(|e| ScriptError::Parse(e.to_string()))
+}
+
+async fn push_segment_with_pauses(
+    client: &AllTalkClient,
+    buffers: &mut Vec<Vec<i16>>,
+    sample_rate: u32,
+    seg: &Segment,
+) -> Result<(), ScriptError> {
+    if seg.pause_before_ms > 0 {
+        buffers.push(silence_i16_mono(seg.pause_before_ms, sample_rate));
+    }
+
+    let wav_bytes = synthesize_segment_wav(client, seg).await?;
+    let (_sr, samples) = decode_i16_mono_from_bytes(&wav_bytes)?;
+    buffers.push(samples);
+
+    if seg.pause_after_ms > 0 {
+        buffers.push(silence_i16_mono(seg.pause_after_ms, sample_rate));
+    }
+
+    Ok(())
+}
+
+fn decode_i16_mono_from_bytes(
+    _bytes: &[u8],
+) -> Result<(u32, Vec<i16>), ScriptError> {
+    // TODO: use hound::WavReader::new(Cursor::new(bytes))
+    Err(ScriptError::Parse("not implemented yet".into()))
+}
+
+pub async fn render_segments_to_memory(
+    client: &AllTalkClient,
+    state: &PipelineState<'_>,
+) -> Result<Vec<Vec<i16>>, ScriptError> {
+    let mut buffers = Vec::new();
+    for seg in &state.script.segments {
+        let wav_bytes = synthesize_segment_wav(client, seg).await?;
+        let (_sr, samples) = decode_i16_mono_from_bytes(&wav_bytes)?;
+        buffers.push(samples);
+    }
+    Ok(buffers)
+}
+(That’s 4 functions in the module: render_to_wav, push_segment_with_pauses, decode_i16_mono_from_bytes, render_segments_to_memory.)
+
+5. Component 4 – tts-apps (CLI + server + Yew UI)
+Workspace: components/tts-apps/
+
+Crates:
+
+ttsctl – CLI bin crate.
+
+tts-orchestrator-server – small HTTP server API for UI.
+
+tts-orchestrator-ui – Yew SPA (targeting WASM; no functions in lib.rs, just modules).
+
+5.1 ttsctl CLI
+Modules:
+
+cmd.rs – CLI arg parsing and command enum.
+
+handlers.rs – per-command functions (≤4).
+
+config.rs – load/save config.
+
+handlers.rs (≤4; side-effecting; call into pipeline)
+use crate::config::Config;
+use tts_spec_script::{parse::from_yaml_reader, validate::validate};
+use tts_render_pipeline::{state::new_state, exec::render_to_wav};
+use tts_engine_alltalk::client::new_client;
+use std::fs::File;
+use std::path::Path;
+
+pub async fn handle_ping(cfg: &Config) -> anyhow::Result<()> {
+    let client = new_client(&cfg.alltalk_url)?;
+    let ok = tts_engine_alltalk::http_ops::check_ready(&client).await?;
+    println!("AllTalk ready: {ok}");
+    Ok(())
+}
+
+pub async fn handle_render_script<P: AsRef<Path>>(
+    cfg: &Config,
+    script_path: P,
+    out_path: P,
+) -> anyhow::Result<()> {
+    let client = new_client(&cfg.alltalk_url)?;
+    let file = File::open(script_path)?;
+    let script = from_yaml_reader(file)?;
+    validate(&script)?;
+
+    let state = new_state(&script);
+    render_to_wav(&client, &state, out_path).await?;
+    Ok(())
+}
+
+pub async fn handle_list_voices(cfg: &Config) -> anyhow::Result<()> {
+    let client = new_client(&cfg.alltalk_url)?;
+    let voices = tts_engine_alltalk::http_ops::list_voices(&client).await?;
+    for v in voices {
+        println!("{v}");
+    }
+    Ok(())
+}
+
+// 4th handler reserved, e.g. handle_generate_template_script()
+pub fn handle_generate_template_script() -> anyhow::Result<()> {
+    // write example YAML to stdout
+    Ok(())
+}
+Main (main.rs) only wires tokio::main and calls these handlers; no other logic.
+
+6. How this maps to your goals
+Small units:
+
+Modules are narrow and mostly pure.
+
+Functions per module ≤ 4.
+
+Crates per component ≤ 4.
+
+Strict layering:
+
+tts-spec-* knows nothing about HTTP, AllTalk, or audio I/O.
+
+tts-engine-* knows nothing about WAV layout; only “segment → WAV bytes”.
+
+tts-render-* knows nothing about YAML / CLI; only Script + AllTalkClient → buffers → WAV.
+
+tts-apps is thin glue and UX.
+
+Pure vs state-changing:
+
+Modules like parse.rs, validate.rs, silence.rs, concat.rs, build.rs, mapping.rs are pure.
+
+Modules like http_ops.rs, wav_io.rs, exec.rs, handlers.rs are side-effecting and clearly separated.
+
+Easy testing:
+
+Unit tests live beside each module or in /tests per crate.
+
+Integration tests can be in a separate component (e.g. components/tts-tests/) that spins up a test AllTalk instance and runs end-to-end scripts.
+
+If you’d like, next step we can zoom into one component at a time (e.g. tts-spec) and fully flesh out the real Cargo.tomls and initial skeleton files so you can cargo new the whole hierarchy with a single shell script and start filling in implementations incrementally.
+
+
+
+No file chosenNo file chosen
+ChatGPT can make mistakes. Check important info.
+

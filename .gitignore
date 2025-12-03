@@ -1,0 +1,40 @@
+# Rust build artifacts
+/target/
+
+# Cargo.lock - keep for reproducible builds
+# (workspace contains library crates, but will have CLI binary)
+# Cargo.lock
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+
+# Environment and secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Debug and log files
+*.log
+*.pid
+
+# Test artifacts
+*.profraw
+coverage/
+
+# Generated documentation
+/doc/
+
+# Backup files
+*.bak
+*.orig
+
+# Windows
+Thumbs.db

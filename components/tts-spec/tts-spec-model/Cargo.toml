@@ -1,0 +1,11 @@
+[package]
+name = "tts-spec-model"
+description = "Core data types for TTS script specification"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde.workspace = true
+thiserror.workspace = true
