@@ -1,0 +1,22 @@
+[package]
+name = "tts-web-ui"
+description = "Yew-based web UI for TTS control plane"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+tts-spec-model.workspace = true
+tts-spec-script.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+yew.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+web-sys.workspace = true
+gloo-net.workspace = true
+gloo-timers.workspace = true

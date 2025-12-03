@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "tts-web-ui",
+    "tts-web-server",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/softwarewrighter/alltalk-client-rs"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Async runtime
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "fs", "net"] }
+
+# Web framework (server)
+axum = "0.8"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+
+# Yew (WASM UI)
+yew = { version = "0.21", features = ["csr"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement", "console"] }
+gloo-net = "0.6"
+gloo-timers = "0.3"
+
+# Internal crates (from tts-spec component)
+tts-spec-model = { path = "../tts-spec/tts-spec-model" }
+tts-spec-script = { path = "../tts-spec/tts-spec-script" }

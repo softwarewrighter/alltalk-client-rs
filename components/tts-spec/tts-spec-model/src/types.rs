@@ -73,10 +73,16 @@ pub struct Segment {
 }
 
 /// A complete TTS script containing multiple segments.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Script {
-    /// Target sample rate for output audio in Hz
+    /// Target sample rate for output audio in Hz (default: 24000)
+    #[serde(default = "default_sample_rate")]
     pub sample_rate: u32,
     /// Ordered list of segments to synthesize
+    #[serde(default)]
     pub segments: Vec<Segment>,
+}
+
+fn default_sample_rate() -> u32 {
+    24000
 }
