@@ -1,0 +1,10 @@
+# TTS Control Plane Configuration
+
+# Backend AllTalk server URL
+alltalk_url = "http://curiosity:7851"
+
+# Default TTS engine (parler, piper, xtts)
+default_engine = "parler"
+
+# Default sample rate in Hz
+default_sample_rate = 24000

@@ -8,16 +8,9 @@ ttsctl - TTS control plane CLI for AllTalk
 
 Synthesize speech from scripts with precise pause and emotion control.
 
-USAGE:
-    ttsctl [OPTIONS]
+Examples:
     ttsctl -s script.yaml -o output.wav
-
-OPTIONS:
-    -V, --version       Print version
-    -h, --help          Print help (use --help for AI agent details)
-    -c, --config-file   Path to config.toml
-    -s, --script-file   Path to script file (YAML/JSON)
-    -o, --output-file   Path to output WAV file";
+    ttsctl -w -b 0.0.0.0:5157";
 
 const LONG_HELP: &str = "\
 ttsctl - TTS control plane CLI for AllTalk
@@ -25,23 +18,10 @@ ttsctl - TTS control plane CLI for AllTalk
 Synthesize speech from scripts with precise pause and emotion control.
 Supports multiple TTS engines (Parler, Piper, XTTS) via AllTalk v2 backend.
 
-USAGE:
-    ttsctl [OPTIONS]
-    ttsctl -s script.yaml -o output.wav
-
-OPTIONS:
-    -V, --version                  Print version information
-    -h, --help                     Print help (short with -h, detailed with --help)
-    -c, --config-file <PATH>       Path to configuration file (default: ~/.config/ttsctl/config.toml)
-    -s, --script-file <PATH>       Path to script file (YAML or JSON format)
-    -o, --output-file <PATH>       Path to output WAV file
-
 EXAMPLES:
-    # Render a script to audio
     ttsctl -s podcast.yaml -o episode1.wav
-
-    # Use custom config
     ttsctl -c ./my-config.toml -s script.yaml -o out.wav
+    ttsctl -w -b 192.168.1.100:5157
 
 AI CODING AGENT INSTRUCTIONS:
 =============================
@@ -105,6 +85,23 @@ pub struct Cli {
     /// Path to output WAV file
     #[arg(short = 'o', long = "output-file", value_name = "PATH")]
     pub output_file: Option<PathBuf>,
+
+    /// Start web UI server
+    #[arg(short = 'w', long = "web-ui")]
+    pub web_ui: bool,
+
+    /// Bind address for web UI (default: 0.0.0.0:5157)
+    #[arg(
+        short = 'b',
+        long = "bind",
+        value_name = "ADDR:PORT",
+        default_value = "0.0.0.0:5157"
+    )]
+    pub bind: String,
+
+    /// Backend AllTalk URL for web UI proxy (overrides config)
+    #[arg(long = "backend-url", value_name = "URL")]
+    pub backend_url: Option<String>,
 }
 
 /// Generate version string with build info.

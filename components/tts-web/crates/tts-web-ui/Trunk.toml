@@ -9,3 +9,9 @@ watch = ["src", "index.html", "static"]
 [serve]
 address = "127.0.0.1"
 port = 8080
+
+# Copy favicon to dist
+[[hooks]]
+stage = "post_build"
+command = "sh"
+command_arguments = ["-c", "cp static/favicon.ico dist/"]

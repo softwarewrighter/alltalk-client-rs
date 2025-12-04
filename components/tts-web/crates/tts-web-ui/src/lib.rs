@@ -4,8 +4,9 @@
 //! and runs in the browser. No TypeScript or Python - only minimal JS glue.
 
 mod app;
-mod editor;
-mod state;
+mod generate;
+pub mod state;
+mod training;
 mod widgets;
 
 pub use app::App;

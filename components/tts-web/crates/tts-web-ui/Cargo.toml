@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "tts-web-ui"
+path = "src/main.rs"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 
@@ -20,3 +24,8 @@ wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 gloo-net.workspace = true
 gloo-timers.workspace = true
+js-sys.workspace = true
+
+[build-dependencies]
+hostname = "0.4"
+chrono = "0.4"

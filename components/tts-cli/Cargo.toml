@@ -24,6 +24,13 @@ clap = { version = "4.5", features = ["derive"] }
 # Async runtime
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros", "fs", "net"] }
 
+# Web server (for --web-ui)
+axum = "0.8"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+
+# HTTP client (for proxy to backend)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+
 # Internal crates (from tts-spec component)
 tts-spec-model = { path = "../tts-spec/crates/tts-spec-model" }
 tts-spec-script = { path = "../tts-spec/crates/tts-spec-script" }

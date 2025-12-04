@@ -1,20 +1,72 @@
 //! Reusable UI widgets for the TTS web application.
 
-use crate::state::{StatusLevel, StatusMessage};
+use crate::state::{ModelKind, PlayerState, StatusLevel, StatusMessage, TabKind};
 use yew::prelude::*;
 
-/// Header component with title and navigation controls.
+/// Properties for Header component.
+#[derive(Properties, PartialEq)]
+pub struct HeaderProps {
+    pub active_model: ModelKind,
+    pub on_model_change: Callback<ModelKind>,
+}
+
+/// Header component with title and model selector.
 #[function_component(Header)]
-pub fn header() -> Html {
+pub fn header(props: &HeaderProps) -> Html {
+    let on_change = {
+        let cb = props.on_model_change.clone();
+        Callback::from(move |e: Event| {
+            let target: web_sys::HtmlSelectElement = e.target_unchecked_into();
+            let model = match target.value().as_str() {
+                "piper" => ModelKind::Piper,
+                "xtts" => ModelKind::Xtts,
+                _ => ModelKind::Parler,
+            };
+            cb.emit(model);
+        })
+    };
+    let selected = match props.active_model {
+        ModelKind::Parler => "parler",
+        ModelKind::Piper => "piper",
+        ModelKind::Xtts => "xtts",
+    };
     html! {
         <header class="header">
             <h1>{"TTS Control Plane"}</h1>
-            <nav class="nav">
-                <button class="btn">{"Load Script"}</button>
-                <button class="btn">{"Save Script"}</button>
-                <button class="btn btn-primary">{"Render Audio"}</button>
-            </nav>
+            <div class="model-selector">
+                <label>{"Model:"}</label>
+                <select onchange={on_change} value={selected}>
+                    <option value="parler" selected={selected == "parler"}>{"Parler"}</option>
+                    <option value="piper" selected={selected == "piper"}>{"Piper"}</option>
+                    <option value="xtts" selected={selected == "xtts"}>{"XTTS"}</option>
+                </select>
+            </div>
         </header>
+    }
+}
+
+/// Properties for TabBar component.
+#[derive(Properties, PartialEq)]
+pub struct TabBarProps {
+    pub active_tab: TabKind,
+    pub on_tab_change: Callback<TabKind>,
+}
+
+/// Tab navigation bar.
+#[function_component(TabBar)]
+pub fn tab_bar(props: &TabBarProps) -> Html {
+    let make_tab = |tab: TabKind, label: &'static str| {
+        let active = props.active_tab == tab;
+        let class = if active { "tab active" } else { "tab" };
+        let cb = props.on_tab_change.clone();
+        let onclick = Callback::from(move |_| cb.emit(tab.clone()));
+        html! { <button class={class} onclick={onclick}>{label}</button> }
+    };
+    html! {
+        <nav class="tab-bar">
+            {make_tab(TabKind::Settings, "Settings")}
+            {make_tab(TabKind::Generate, "Generate")}
+        </nav>
     }
 }
 
@@ -39,17 +91,56 @@ pub fn status_bar(props: &StatusBarProps) -> Html {
 /// Footer component with copyright and build info.
 #[function_component(Footer)]
 pub fn footer() -> Html {
+    let build_info = format!(
+        "Built on {} at {} for {}",
+        env!("BUILD_HOST"),
+        env!("BUILD_TIME"),
+        env!("GIT_SHA")
+    );
     html! {
         <footer class="footer">
             <div class="footer-main">
-                {"Copyright (c) 2025 Software Wrighter LLC • "}
-                <a href="https://github.com/softwarewrighter/alltalk-client-rs/blob/main/LICENSE">{"License: MIT OR Apache-2.0"}</a>
+                {"Copyright (c) 2025 Michael A. Wright • "}
+                <a href="https://github.com/softwarewrighter/alltalk-client-rs/blob/main/LICENSE">{"License: MIT"}</a>
                 {" • "}
                 <a href="https://github.com/softwarewrighter/alltalk-client-rs">{"Repository"}</a>
             </div>
-            <div class="footer-build">
-                {"Build Host: wasm32 • Build Commit: dev • Build Time: runtime"}
-            </div>
+            <div class="footer-build">{build_info}</div>
         </footer>
+    }
+}
+
+/// Properties for AudioPlayer component.
+#[derive(Properties, PartialEq)]
+pub struct AudioPlayerProps {
+    pub player: PlayerState,
+}
+
+/// Audio player with HTML5 audio element.
+#[function_component(AudioPlayer)]
+pub fn audio_player(props: &AudioPlayerProps) -> Html {
+    let has_audio = props.player.audio_url.is_some();
+
+    html! {
+        <div class={classes!("audio-player", (!has_audio).then_some("disabled"))}>
+            {if let Some(url) = &props.player.audio_url {
+                html! {
+                    <div class="audio-container">
+                        <audio controls=true autoplay=true src={url.clone()}>
+                            {"Your browser does not support the audio element."}
+                        </audio>
+                        <a class="btn btn-secondary download-btn" href={url.clone()} download="tts-output.wav">
+                            {"Download WAV"}
+                        </a>
+                    </div>
+                }
+            } else {
+                html! {
+                    <div class="audio-placeholder">
+                        {"Generate audio to play it here"}
+                    </div>
+                }
+            }}
+        </div>
     }
 }

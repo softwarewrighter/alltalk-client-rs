@@ -18,4 +18,22 @@ echo "Building tts-cli..."
 cd "${PROJECT_ROOT}/components/tts-cli"
 cargo build --release
 
+# Build tts-web component (server + WASM UI)
+echo "Building tts-web..."
+cd "${PROJECT_ROOT}/components/tts-web"
+
+# Build the server
+echo "  Building tts-web-server..."
+cargo build --release -p tts-web-server
+
+# Build WASM UI with Trunk
+echo "  Building tts-web-ui (WASM)..."
+cd "${PROJECT_ROOT}/components/tts-web/crates/tts-web-ui"
+trunk build --release
+
 echo "Build complete."
+echo ""
+echo "Artifacts:"
+echo "  CLI:    ${PROJECT_ROOT}/components/tts-cli/target/release/ttsctl"
+echo "  Server: ${PROJECT_ROOT}/components/tts-web/target/release/tts-web-server"
+echo "  WebUI:  ${PROJECT_ROOT}/components/tts-web/crates/tts-web-ui/dist/"

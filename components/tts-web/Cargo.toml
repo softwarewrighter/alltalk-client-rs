@@ -32,9 +32,16 @@ tower-http = { version = "0.6", features = ["fs", "cors"] }
 yew = { version = "0.21", features = ["csr"] }
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-web-sys = { version = "0.3", features = ["Window", "Document", "HtmlElement", "console"] }
+web-sys = { version = "0.3", features = [
+    "Window", "Document", "HtmlElement", "console",
+    "HtmlSelectElement", "HtmlInputElement", "HtmlTextAreaElement",
+    "HtmlCanvasElement", "CanvasRenderingContext2d",
+    "Event", "InputEvent", "MouseEvent",
+    "HtmlAudioElement", "Blob", "BlobPropertyBag", "Url"
+] }
 gloo-net = "0.6"
 gloo-timers = "0.3"
+js-sys = "0.3"
 
 # Internal crates (from tts-spec component)
 tts-spec-model = { path = "../tts-spec/crates/tts-spec-model" }

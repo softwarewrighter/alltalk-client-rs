@@ -1,5 +1,9 @@
 # Rust build artifacts
 /target/
+**/target/
+
+# Trunk build output
+**/dist/
 
 # Cargo.lock - keep for reproducible builds
 # (workspace contains library crates, but will have CLI binary)
