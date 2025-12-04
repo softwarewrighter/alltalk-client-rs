@@ -12,6 +12,8 @@ alltalk-client-rs provides precise control over text-to-speech synthesis with su
 - Multi-speaker podcast generation
 - Web UI for interactive TTS generation
 
+![TTS Web UI Generate Screen](images/screenshot.png?ts=1733341289000)
+
 ## Architecture
 
 ```
