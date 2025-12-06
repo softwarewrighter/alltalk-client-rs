@@ -1,15 +1,64 @@
 //! Main Yew application component.
 
 use crate::generate::GenerateTab;
-use crate::state::{AppState, ModelKind, StatusLevel, TabKind};
+use crate::state::{AppState, EngineInfo, ModelKind, StatusLevel, TabKind};
 use crate::training::SettingsTab;
-use crate::widgets::{AudioPlayer, Footer, Header, StatusBar, TabBar};
+use crate::widgets::{AudioPlayer, Footer, Header, NonCommercialWarning, StatusBar, TabBar};
+use gloo_net::http::Request;
+use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
+
+/// Fetch available engines from the API.
+async fn fetch_engines() -> Result<Vec<EngineInfo>, String> {
+    let response = Request::get("/api/engines")
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.ok() {
+        return Err("Failed to fetch engines".into());
+    }
+
+    #[derive(serde::Deserialize)]
+    struct EnginesResponse {
+        engines: Vec<EngineInfo>,
+    }
+
+    let data: EnginesResponse = response.json().await.map_err(|e| e.to_string())?;
+    Ok(data.engines)
+}
 
 /// Root application component.
 #[function_component(App)]
 pub fn app() -> Html {
     let state = use_state(AppState::new);
+
+    // Fetch available engines on startup
+    {
+        let state = state.clone();
+        use_effect_with((), move |_| {
+            spawn_local(async move {
+                match fetch_engines().await {
+                    Ok(engines) => {
+                        let mut new_state = (*state).clone();
+                        new_state.set_available_engines(engines);
+                        new_state.set_status("Connected to TTS backend", StatusLevel::Success);
+                        state.set(new_state);
+                    }
+                    Err(e) => {
+                        let mut new_state = (*state).clone();
+                        new_state.engines_loaded = true; // Mark as loaded even on error
+                        new_state.set_status(
+                            &format!("Failed to connect: {}. Check API URL in Settings.", e),
+                            StatusLevel::Error,
+                        );
+                        state.set(new_state);
+                    }
+                }
+            });
+            || ()
+        });
+    }
 
     let on_model_change = {
         let state = state.clone();
@@ -83,6 +132,33 @@ pub fn app() -> Html {
         })
     };
 
+    let on_xtts_text_change = {
+        let state = state.clone();
+        Callback::from(move |text: String| {
+            let mut new_state = (*state).clone();
+            new_state.set_xtts_text(text);
+            state.set(new_state);
+        })
+    };
+
+    let on_xtts_voice_change = {
+        let state = state.clone();
+        Callback::from(move |voice: String| {
+            let mut new_state = (*state).clone();
+            new_state.set_xtts_voice(voice);
+            state.set(new_state);
+        })
+    };
+
+    let on_xtts_language_change = {
+        let state = state.clone();
+        Callback::from(move |lang: String| {
+            let mut new_state = (*state).clone();
+            new_state.set_xtts_language(lang);
+            state.set(new_state);
+        })
+    };
+
     let on_audio_received = {
         let state = state.clone();
         Callback::from(move |url: String| {
@@ -102,34 +178,103 @@ pub fn app() -> Html {
         })
     };
 
+    let on_voice_name_change = {
+        let state = state.clone();
+        Callback::from(move |name: String| {
+            let mut new_state = (*state).clone();
+            new_state.set_training_voice_name(name);
+            state.set(new_state);
+        })
+    };
+
+    let on_transcript_change = {
+        let state = state.clone();
+        Callback::from(move |transcript: String| {
+            let mut new_state = (*state).clone();
+            new_state.set_training_transcript(transcript);
+            state.set(new_state);
+        })
+    };
+
+    let on_recording_change = {
+        let state = state.clone();
+        Callback::from(move |recording: bool| {
+            let mut new_state = (*state).clone();
+            new_state.set_recording(recording);
+            state.set(new_state);
+        })
+    };
+
+    let on_audio_change = {
+        let state = state.clone();
+        Callback::from(move |audio: Option<Vec<u8>>| {
+            let mut new_state = (*state).clone();
+            new_state.set_training_audio(audio);
+            state.set(new_state);
+        })
+    };
+
+    let on_voices_refresh = {
+        let state = state.clone();
+        Callback::from(move |voices: Vec<String>| {
+            let mut new_state = (*state).clone();
+            new_state.set_xtts_voices(voices);
+            state.set(new_state);
+        })
+    };
+
+    let on_status_change_settings = on_status_change.clone();
+
     let tab_content = match state.active_tab {
         TabKind::Settings => html! {
-            <SettingsTab
-                model={state.active_model.clone()}
-                api_url={state.api_url.clone()}
-                on_api_url_change={on_api_url_change}
-            />
+            <>
+                <NonCommercialWarning model={state.active_model.clone()} />
+                <SettingsTab
+                    model={state.active_model.clone()}
+                    api_url={state.api_url.clone()}
+                    training={state.training.clone()}
+                    on_api_url_change={on_api_url_change}
+                    on_voice_name_change={on_voice_name_change}
+                    on_transcript_change={on_transcript_change}
+                    on_recording_change={on_recording_change}
+                    on_audio_change={on_audio_change}
+                    on_status_change={on_status_change_settings}
+                    on_voices_refresh={on_voices_refresh}
+                />
+            </>
         },
         TabKind::Generate => html! {
-            <GenerateTab
-                model={state.active_model.clone()}
-                parler={state.parler.clone()}
-                piper={state.piper.clone()}
-                api_url={state.api_url.clone()}
-                on_parler_text_change={on_parler_text_change}
-                on_parler_speaker_change={on_parler_speaker_change}
-                on_parler_description_change={on_parler_description_change}
-                on_piper_text_change={on_piper_text_change}
-                on_piper_voice_change={on_piper_voice_change}
-                on_audio_received={on_audio_received}
-                on_status_change={on_status_change}
-            />
+            <>
+                <NonCommercialWarning model={state.active_model.clone()} />
+                <GenerateTab
+                    model={state.active_model.clone()}
+                    parler={state.parler.clone()}
+                    piper={state.piper.clone()}
+                    xtts={state.xtts.clone()}
+                    api_url={state.api_url.clone()}
+                    on_parler_text_change={on_parler_text_change}
+                    on_parler_speaker_change={on_parler_speaker_change}
+                    on_parler_description_change={on_parler_description_change}
+                    on_piper_text_change={on_piper_text_change}
+                    on_piper_voice_change={on_piper_voice_change}
+                    on_xtts_text_change={on_xtts_text_change}
+                    on_xtts_voice_change={on_xtts_voice_change}
+                    on_xtts_language_change={on_xtts_language_change}
+                    on_audio_received={on_audio_received}
+                    on_status_change={on_status_change}
+                />
+            </>
         },
     };
 
     html! {
         <div class="app">
-            <Header active_model={state.active_model.clone()} on_model_change={on_model_change} />
+            <Header
+                active_model={state.active_model.clone()}
+                available_engines={state.available_engines.clone()}
+                engines_loaded={state.engines_loaded}
+                on_model_change={on_model_change}
+            />
             <TabBar active_tab={state.active_tab.clone()} on_tab_change={on_tab_change} />
             <main class="main-content">
                 {tab_content}

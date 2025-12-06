@@ -9,6 +9,74 @@ pub enum ModelKind {
     Parler,
     Piper,
     Xtts,
+    GptSovits,
+    Dia,
+    Toucan,
+}
+
+impl ModelKind {
+    /// Get the engine ID string for API calls.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ModelKind::Parler => "parler",
+            ModelKind::Piper => "piper",
+            ModelKind::Xtts => "xtts",
+            ModelKind::GptSovits => "gptsovits",
+            ModelKind::Dia => "dia",
+            ModelKind::Toucan => "toucan",
+        }
+    }
+
+    /// Get the display name.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ModelKind::Parler => "Parler",
+            ModelKind::Piper => "Piper",
+            ModelKind::Xtts => "XTTS",
+            ModelKind::GptSovits => "GPT-SoVITS",
+            ModelKind::Dia => "Dia",
+            ModelKind::Toucan => "Toucan",
+        }
+    }
+
+    /// Check if this engine is for non-commercial use only.
+    pub fn is_non_commercial(&self) -> bool {
+        matches!(self, ModelKind::Xtts)
+    }
+
+    /// Check if this engine supports voice cloning.
+    pub fn supports_cloning(&self) -> bool {
+        matches!(
+            self,
+            ModelKind::Xtts | ModelKind::GptSovits | ModelKind::Dia | ModelKind::Toucan
+        )
+    }
+}
+
+/// Information about an available TTS engine.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EngineInfo {
+    pub id: String,
+    pub name: String,
+    pub available: bool,
+    pub license: String,
+    pub cloning: bool,
+    pub commercial: bool,
+}
+
+impl EngineInfo {
+    /// Convert engine ID to ModelKind.
+    pub fn to_model_kind(&self) -> Option<ModelKind> {
+        match self.id.as_str() {
+            "parler" => Some(ModelKind::Parler),
+            "piper" => Some(ModelKind::Piper),
+            "xtts" => Some(ModelKind::Xtts),
+            "gptsovits" => Some(ModelKind::GptSovits),
+            "dia" => Some(ModelKind::Dia),
+            "toucan" => Some(ModelKind::Toucan),
+            _ => None,
+        }
+    }
 }
 
 /// Active tab selection.
@@ -71,6 +139,40 @@ impl Default for PiperState {
     }
 }
 
+/// XTTS voice cloning state.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct XttsState {
+    pub text: String,
+    pub voice: String,
+    pub language: String,
+    pub available_voices: Vec<String>,
+    pub temperature: f32,
+    pub speed: f32,
+}
+
+impl Default for XttsState {
+    fn default() -> Self {
+        Self {
+            text: String::new(),
+            voice: String::new(),
+            language: "en".into(),
+            available_voices: Vec::new(),
+            temperature: 0.7,
+            speed: 1.0,
+        }
+    }
+}
+
+/// Voice training state for recording/uploading reference audio.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct TrainingState {
+    pub voice_name: String,
+    pub transcript: String,
+    pub is_recording: bool,
+    pub audio_blob: Option<Vec<u8>>,
+    pub upload_progress: Option<f32>,
+}
+
 /// Audio player state.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct PlayerState {
@@ -103,8 +205,12 @@ pub enum StatusLevel {
 pub struct AppState {
     pub active_model: ModelKind,
     pub active_tab: TabKind,
+    pub available_engines: Vec<EngineInfo>,
+    pub engines_loaded: bool,
     pub parler: ParlerState,
     pub piper: PiperState,
+    pub xtts: XttsState,
+    pub training: TrainingState,
     pub player: PlayerState,
     pub status: StatusMessage,
     pub api_url: String,
@@ -122,8 +228,12 @@ impl AppState {
         Self {
             active_model: ModelKind::default(),
             active_tab: TabKind::default(),
+            available_engines: Vec::new(),
+            engines_loaded: false,
             parler: ParlerState::default(),
             piper: PiperState::default(),
+            xtts: XttsState::default(),
+            training: TrainingState::default(),
             player: PlayerState::default(),
             status: StatusMessage::default(),
             api_url: "http://localhost:7851".into(),
@@ -133,6 +243,31 @@ impl AppState {
     /// Set the active model.
     pub fn set_model(&mut self, model: ModelKind) {
         self.active_model = model;
+    }
+
+    /// Set available engines from API response.
+    pub fn set_available_engines(&mut self, engines: Vec<EngineInfo>) {
+        // If current model is not available, switch to first available
+        let current_available = engines
+            .iter()
+            .any(|e| e.to_model_kind() == Some(self.active_model.clone()));
+
+        if !current_available
+            && !engines.is_empty()
+            && let Some(first) = engines.first().and_then(|e| e.to_model_kind())
+        {
+            self.active_model = first;
+        }
+
+        self.available_engines = engines;
+        self.engines_loaded = true;
+    }
+
+    /// Check if a model is available.
+    pub fn is_model_available(&self, model: &ModelKind) -> bool {
+        self.available_engines
+            .iter()
+            .any(|e| e.to_model_kind().as_ref() == Some(model))
     }
 
     /// Set the active tab.
@@ -190,5 +325,48 @@ impl AppState {
     /// Update Piper voice model.
     pub fn set_piper_voice(&mut self, voice: String) {
         self.piper.voice_model = voice;
+    }
+
+    /// Update XTTS text.
+    pub fn set_xtts_text(&mut self, text: String) {
+        self.xtts.text = text;
+    }
+
+    /// Update XTTS voice.
+    pub fn set_xtts_voice(&mut self, voice: String) {
+        self.xtts.voice = voice;
+    }
+
+    /// Update XTTS language.
+    pub fn set_xtts_language(&mut self, language: String) {
+        self.xtts.language = language;
+    }
+
+    /// Set available XTTS voices.
+    pub fn set_xtts_voices(&mut self, voices: Vec<String>) {
+        if self.xtts.voice.is_empty() && !voices.is_empty() {
+            self.xtts.voice = voices[0].clone();
+        }
+        self.xtts.available_voices = voices;
+    }
+
+    /// Update training voice name.
+    pub fn set_training_voice_name(&mut self, name: String) {
+        self.training.voice_name = name;
+    }
+
+    /// Update training transcript.
+    pub fn set_training_transcript(&mut self, transcript: String) {
+        self.training.transcript = transcript;
+    }
+
+    /// Set recording state.
+    pub fn set_recording(&mut self, recording: bool) {
+        self.training.is_recording = recording;
+    }
+
+    /// Set audio blob from recording or upload.
+    pub fn set_training_audio(&mut self, audio: Option<Vec<u8>>) {
+        self.training.audio_blob = audio;
     }
 }

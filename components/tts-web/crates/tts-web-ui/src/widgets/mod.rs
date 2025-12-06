@@ -1,12 +1,14 @@
 //! Reusable UI widgets for the TTS web application.
 
-use crate::state::{ModelKind, PlayerState, StatusLevel, StatusMessage, TabKind};
+use crate::state::{EngineInfo, ModelKind, PlayerState, StatusLevel, StatusMessage, TabKind};
 use yew::prelude::*;
 
 /// Properties for Header component.
 #[derive(Properties, PartialEq)]
 pub struct HeaderProps {
     pub active_model: ModelKind,
+    pub available_engines: Vec<EngineInfo>,
+    pub engines_loaded: bool,
     pub on_model_change: Callback<ModelKind>,
 }
 
@@ -15,30 +17,50 @@ pub struct HeaderProps {
 pub fn header(props: &HeaderProps) -> Html {
     let on_change = {
         let cb = props.on_model_change.clone();
+        let engines = props.available_engines.clone();
         Callback::from(move |e: Event| {
             let target: web_sys::HtmlSelectElement = e.target_unchecked_into();
-            let model = match target.value().as_str() {
-                "piper" => ModelKind::Piper,
-                "xtts" => ModelKind::Xtts,
-                _ => ModelKind::Parler,
-            };
-            cb.emit(model);
+            let value = target.value();
+            // Find the engine and convert to ModelKind
+            if let Some(engine) = engines.iter().find(|e| e.id == value)
+                && let Some(model) = engine.to_model_kind()
+            {
+                cb.emit(model);
+            }
         })
     };
-    let selected = match props.active_model {
-        ModelKind::Parler => "parler",
-        ModelKind::Piper => "piper",
-        ModelKind::Xtts => "xtts",
+
+    let selected = props.active_model.as_str();
+
+    // Build options from available engines
+    let options = if props.engines_loaded && !props.available_engines.is_empty() {
+        props
+            .available_engines
+            .iter()
+            .map(|engine| {
+                let is_selected = engine.id == selected;
+                let label = if !engine.commercial {
+                    format!("{} (non-commercial)", engine.name)
+                } else {
+                    engine.name.clone()
+                };
+                html! {
+                    <option value={engine.id.clone()} selected={is_selected}>{label}</option>
+                }
+            })
+            .collect::<Vec<_>>()
+    } else {
+        // Loading state or no engines available
+        vec![html! { <option disabled=true>{"Loading..."}</option> }]
     };
+
     html! {
         <header class="header">
             <h1>{"TTS Control Plane"}</h1>
             <div class="model-selector">
                 <label>{"Model:"}</label>
-                <select onchange={on_change} value={selected}>
-                    <option value="parler" selected={selected == "parler"}>{"Parler"}</option>
-                    <option value="piper" selected={selected == "piper"}>{"Piper"}</option>
-                    <option value="xtts" selected={selected == "xtts"}>{"XTTS"}</option>
+                <select onchange={on_change} disabled={!props.engines_loaded}>
+                    {for options}
                 </select>
             </div>
         </header>
@@ -141,6 +163,31 @@ pub fn audio_player(props: &AudioPlayerProps) -> Html {
                     </div>
                 }
             }}
+        </div>
+    }
+}
+
+/// Properties for NonCommercialWarning component.
+#[derive(Properties, PartialEq)]
+pub struct NonCommercialWarningProps {
+    pub model: ModelKind,
+}
+
+/// Warning banner for non-commercial use models.
+#[function_component(NonCommercialWarning)]
+pub fn non_commercial_warning(props: &NonCommercialWarningProps) -> Html {
+    if !props.model.is_non_commercial() {
+        return html! {};
+    }
+
+    html! {
+        <div class="warning-banner non-commercial">
+            <span class="warning-icon">{"⚠️"}</span>
+            <span class="warning-text">
+                <strong>{"NON-COMMERCIAL USE ONLY"}</strong>
+                {" — XTTS is licensed under CPML which prohibits commercial use. "}
+                {"For commercial projects, use GPT-SoVITS (MIT) or Dia (Apache 2.0)."}
+            </span>
         </div>
     }
 }

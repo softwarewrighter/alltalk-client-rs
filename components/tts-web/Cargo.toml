@@ -36,8 +36,11 @@ web-sys = { version = "0.3", features = [
     "Window", "Document", "HtmlElement", "console",
     "HtmlSelectElement", "HtmlInputElement", "HtmlTextAreaElement",
     "HtmlCanvasElement", "CanvasRenderingContext2d",
-    "Event", "InputEvent", "MouseEvent",
-    "HtmlAudioElement", "Blob", "BlobPropertyBag", "Url"
+    "Event", "InputEvent", "MouseEvent", "DragEvent", "DataTransfer",
+    "HtmlAudioElement", "Blob", "BlobPropertyBag", "Url",
+    "File", "FileList", "FileReader",
+    "Navigator", "MediaDevices", "MediaStream", "MediaStreamConstraints",
+    "MediaRecorder", "MediaRecorderOptions", "BlobEvent"
 ] }
 gloo-net = "0.6"
 gloo-timers = "0.3"

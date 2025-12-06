@@ -26,7 +26,12 @@ pub async fn run(cli: Cli) -> Result<()> {
     let config = load_config(cli.config_file.as_deref())?;
 
     if cli.web_ui {
-        let backend_url = cli.backend_url.unwrap_or(config.alltalk_url);
+        let default_url = config
+            .backends
+            .get("alltalk")
+            .map(|b| b.url())
+            .unwrap_or_else(|| "http://localhost:5157".into());
+        let backend_url = cli.backend_url.unwrap_or(default_url);
         return serve_web_ui(&cli.bind, &backend_url).await;
     }
 
@@ -138,7 +143,11 @@ async fn render_script(
         script.segments.len(),
         output_path.display()
     );
-    println!("Using AllTalk at: {}", config.alltalk_url);
+    let engines = config.all_engines();
+    println!("Available engines: {:?}", engines);
+    if let Some(url) = config.url_for_engine(&config.default_engine) {
+        println!("Default engine '{}' at: {}", config.default_engine, url);
+    }
     println!("Rendering not yet implemented - waiting for tts-engine component");
     Ok(())
 }

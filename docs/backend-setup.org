@@ -1,0 +1,451 @@
+#+TITLE: TTS Backend Setup for Arch Linux with RTX GPU
+#+AUTHOR: Michael A. Wright
+#+DATE: 2024-12-04
+#+PROPERTY: header-args:bash :results output :exports both
+
+* Overview
+
+This document provides step-by-step instructions for setting up TTS backends
+on an Arch Linux system with an NVIDIA RTX GPU (e.g., RTX 5060 Ti with Blackwell
+architecture). The setup uses Docker containers with automated scripts.
+
+For quick reference on running the scripts, see [[file:scripts/README.md][docs/scripts/README.md]].
+
+** Architecture
+
+#+begin_src text
+┌─────────────────────────────────────────────────────────────────────┐
+│                       Host (Arch Linux)                              │
+│                  RTX 5060-Ti + CUDA 12.8 (Blackwell)                │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │              AllTalk Gateway (:5157)                         │    │
+│  │                                                              │    │
+│  │   ┌──────────┐    ┌──────────┐    ┌──────────┐              │    │
+│  │   │ Parler   │    │  Piper   │    │  XTTS    │              │    │
+│  │   │ :8001    │    │  :8002   │    │  :8003   │              │    │
+│  │   │ (GPU)    │    │  (CPU)   │    │  (GPU)   │              │    │
+│  │   └──────────┘    └──────────┘    └──────────┘              │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐                  │
+│  │ Dia (:1110) │  │ GPT-SoVITS  │  │ Toucan     │   Standalone      │
+│  │ Apache 2.0  │  │ (:6910) MIT │  │ (:1721)    │   Backends        │
+│  └─────────────┘  └─────────────┘  └─────────────┘                  │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+#+end_src
+
+The AllTalk stack provides:
+- *Parler*: Natural language voice descriptions, GPU-accelerated
+- *Piper*: Fast, lightweight CPU-based synthesis
+- *XTTS*: Voice cloning with speaker samples (non-commercial, CPML license)
+
+Standalone backends for specialized use cases:
+- *Dia*: Dialogue-focused TTS (Apache 2.0 - commercial use allowed)
+- *GPT-SoVITS*: Advanced voice cloning (MIT - commercial use allowed)
+- *Toucan*: Multilingual synthesis
+
+** Key Features
+
+- Shared base image with uv venv and PyTorch nightly for Blackwell sm_120 support
+- Automatic model downloads on first run
+- Persistent model cache on host filesystem
+- All scripts generate Dockerfiles and server code dynamically
+
+** Prerequisites
+
+- Arch Linux with kernel 6.x+
+- NVIDIA RTX GPU (Blackwell, Ada Lovelace, or Ampere architecture)
+- NVIDIA drivers 560+ (for Blackwell) or 550+ (for older GPUs)
+- ~50GB free disk space for Docker images and models
+- Internet connection for initial model downloads
+
+* Step 1: Install NVIDIA Drivers and Container Toolkit
+
+** 1.1 Verify GPU Detection
+
+#+begin_src bash :dir ~
+lspci | grep -i nvidia
+#+end_src
+
+** 1.2 Install NVIDIA Drivers
+
+#+begin_src bash :dir ~
+sudo pacman -S --noconfirm nvidia nvidia-utils nvidia-settings
+#+end_src
+
+Reboot after driver installation:
+
+#+begin_src bash :dir ~
+# Only run this when ready to reboot
+# sudo reboot
+#+end_src
+
+** 1.3 Verify Driver Installation
+
+#+begin_src bash :dir ~
+nvidia-smi
+#+end_src
+
+Expected output should show your RTX GPU with driver version and CUDA version.
+
+** 1.4 Install Docker
+
+#+begin_src bash :dir ~
+sudo pacman -S --noconfirm docker docker-compose
+sudo systemctl enable docker
+sudo systemctl start docker
+sudo usermod -aG docker $USER
+#+end_src
+
+Log out and back in for group membership to take effect.
+
+** 1.5 Install NVIDIA Container Toolkit
+
+#+begin_src bash :dir ~
+sudo pacman -S --noconfirm nvidia-container-toolkit
+#+end_src
+
+** 1.6 Configure Docker for NVIDIA Runtime
+
+#+begin_src bash :dir ~
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+#+end_src
+
+** 1.7 Test GPU Access in Docker
+
+#+begin_src bash :dir ~
+docker run --rm --gpus all nvidia/cuda:12.8.0-runtime-ubuntu22.04 nvidia-smi
+#+end_src
+
+* Step 2: Copy Scripts to Target System
+
+From your development machine, copy the scripts to the target:
+
+#+begin_src bash :dir ~/github/softwarewrighter/alltalk-client-rs
+scp -r docs/scripts user@gpu-server:~/tts-backend/
+#+end_src
+
+Or clone the repository directly on the target:
+
+#+begin_src bash
+git clone https://github.com/softwarewrighter/alltalk-client-rs.git
+cd alltalk-client-rs/docs/scripts
+#+end_src
+
+* Step 3: Run AllTalk Stack
+
+The =at-all.sh= script performs the complete pipeline:
+
+#+begin_src bash :dir ~/tts-backend
+./at-all.sh
+#+end_src
+
+This will:
+1. Stop any running containers
+2. Generate Dockerfiles and server code
+3. Build the shared base image
+4. Build gateway, parler, piper, and xtts images
+5. Start all containers via docker-compose
+6. Run tests against all 3 engines
+
+** 3.1 Individual Commands
+
+For more control, run steps individually:
+
+#+begin_src bash
+./at-1-create-dockerfile.sh  # Generate Dockerfiles
+./at-2-build.sh              # Build images
+./at-6-run.sh                # Start containers
+./at-7-test.sh               # Test all engines
+./at-8-stop.sh               # Stop containers
+./at-9-logs.sh               # View logs
+#+end_src
+
+** 3.2 View Specific Logs
+
+#+begin_src bash
+./at-9-logs.sh at-parler 50  # View last 50 lines of Parler logs
+./at-9-logs.sh at-xtts 100   # View last 100 lines of XTTS logs
+#+end_src
+
+* Step 4: Test TTS Generation
+
+** 4.1 Check All Backends Ready
+
+#+begin_src bash
+curl -s http://localhost:5157/api/ready | jq .
+#+end_src
+
+** 4.2 List Available Engines
+
+#+begin_src bash
+curl -s http://localhost:5157/api/engines | jq .
+#+end_src
+
+** 4.3 List Available Voices
+
+#+begin_src bash
+curl -s http://localhost:5157/api/voices | jq .
+#+end_src
+
+** 4.4 Test with Parler
+
+#+begin_src bash
+curl -X POST "http://localhost:5157/api/tts-generate" \
+  -d "text_input=Hello, this is a test of the Parler engine." \
+  -d "engine=parler" \
+  -o test-parler.wav
+
+file test-parler.wav
+#+end_src
+
+** 4.5 Test with Piper
+
+#+begin_src bash
+curl -X POST "http://localhost:5157/api/tts-generate" \
+  -d "text_input=Hello, this is a test of the Piper engine." \
+  -d "engine=piper" \
+  -o test-piper.wav
+
+file test-piper.wav
+#+end_src
+
+** 4.6 Test with XTTS
+
+#+begin_src bash
+curl -X POST "http://localhost:5157/api/tts-generate" \
+  -d "text_input=Hello, this is a test of the XTTS engine." \
+  -d "engine=xtts" \
+  -o test-xtts.wav
+
+file test-xtts.wav
+#+end_src
+
+* Step 5: Run Standalone Backends (Optional)
+
+For engines not in the AllTalk stack:
+
+** 5.1 Dia (Dialogue TTS)
+
+#+begin_src bash
+./dia-1-create-dockerfile.sh
+./dia-2-build.sh
+./dia-6-run.sh
+./dia-7-test.sh
+#+end_src
+
+Test: =curl -s http://localhost:1110/health=
+
+** 5.2 GPT-SoVITS (Voice Cloning)
+
+#+begin_src bash
+./gpt-1-create-dockerfile.sh
+./gpt-2-build.sh
+./gpt-6-run.sh
+./gpt-7-test.sh
+#+end_src
+
+Test: =curl -s http://localhost:6910/health=
+
+** 5.3 Toucan (Multilingual)
+
+#+begin_src bash
+./tou-1-create-dockerfile.sh
+./tou-2-build.sh
+./tou-6-run.sh
+./tou-7-test.sh
+#+end_src
+
+Test: =curl -s http://localhost:1721/health=
+
+* Step 6: Configure ttsctl Client
+
+On your development machine, create a config file:
+
+#+begin_src bash
+mkdir -p ~/.config/ttsctl
+
+cat > ~/.config/ttsctl/config.toml << 'EOF'
+# Default engine for TTS
+default_engine = "parler"
+
+# Backend configurations
+[backends.alltalk]
+url = "http://gpu-server:5157"  # Replace with your server address
+
+[backends.dia]
+url = "http://gpu-server:1110"
+
+[backends.gptsovits]
+url = "http://gpu-server:6910"
+
+# Speaker configurations
+[speakers.mike]
+engine = "parler"
+description = "A male speaker with a confident, professional tone and moderate pace."
+
+[speakers.sarah]
+engine = "parler"
+description = "A warm female voice with clear articulation and expressive delivery."
+
+[speakers.narrator]
+engine = "piper"
+length_scale = 0.9
+noise_scale = 0.5
+EOF
+#+end_src
+
+** 6.1 Test with ttsctl
+
+#+begin_src bash
+# Start the web UI
+ttsctl --web-ui --bind 127.0.0.1:8080
+
+# Or render a script
+cat > test-script.yaml << 'EOF'
+sample_rate: 24000
+segments:
+  - id: intro
+    speaker: mike
+    engine: parler
+    text: "Welcome to the alltalk client test."
+    pause_after_ms: 500
+
+  - id: main
+    speaker: narrator
+    engine: piper
+    text: "This uses the Piper engine for fast synthesis."
+EOF
+
+ttsctl -s test-script.yaml -o output.wav
+#+end_src
+
+* Ports Summary
+
+| Backend    | Default Port | Env Variable |
+|------------|--------------|--------------|
+| AllTalk    |         5157 | AT_PORT      |
+| Dia        |         1110 | DIA_PORT     |
+| GPT-SoVITS |         6910 | GPT_PORT     |
+| Toucan     |         1721 | TOU_PORT     |
+
+* Models Directory
+
+Models are persisted on the host to avoid re-downloading:
+
+#+begin_src bash
+export MODELS_DIR=/path/to/shared/models
+./at-all.sh
+#+end_src
+
+Default: =./models= relative to the work directory.
+
+Structure:
+#+begin_src text
+models/
+  huggingface/    # HuggingFace model cache
+  piper/          # Piper .onnx models
+  tts/            # Coqui TTS/XTTS models
+  parler/         # Parler model cache
+  voices/         # Voice samples for XTTS cloning
+#+end_src
+
+* Troubleshooting
+
+** GPU Not Detected in Container
+
+#+begin_src bash
+# Check NVIDIA runtime is configured
+cat /etc/docker/daemon.json
+
+# Reconfigure if needed
+sudo nvidia-ctk runtime configure --runtime=docker
+sudo systemctl restart docker
+#+end_src
+
+** Container Won't Start
+
+#+begin_src bash
+# Check detailed logs
+./at-9-logs.sh at-parler 100
+./at-9-logs.sh at-xtts 100
+
+# Or use docker compose directly
+docker compose -f work/alltalk/docker-compose.yml logs
+#+end_src
+
+** Blackwell GPU Not Detected (sm_120)
+
+Blackwell architecture (RTX 50xx series) requires PyTorch nightly:
+
+#+begin_src bash
+# The scripts automatically use nightly builds for CUDA 12.8
+# If you see "CUDA error: no kernel image is available", rebuild:
+./at-1-create-dockerfile.sh  # Regenerates with latest nightly
+./at-2-build.sh --no-cache   # Force rebuild
+#+end_src
+
+** Out of Memory
+
+Parler and XTTS require significant GPU memory (~4-8GB each):
+
+#+begin_src bash
+# Check GPU memory usage
+nvidia-smi
+
+# If OOM, run one GPU model at a time
+# Or reduce model precision in at-1-create-dockerfile.sh
+#+end_src
+
+** Model Download Slow
+
+First run downloads large models (1-4GB each). Be patient or pre-download:
+
+#+begin_src bash
+# Pre-warm HuggingFace cache
+docker run --rm -v ${MODELS_DIR:-./models}:/models \
+  -e HF_HOME=/models/huggingface \
+  python:3.11 pip download parler-tts transformers
+#+end_src
+
+* Cleanup
+
+** Stop All Services
+
+#+begin_src bash
+./at-8-stop.sh
+./dia-8-stop.sh
+./gpt-8-stop.sh
+./tou-8-stop.sh
+#+end_src
+
+** Remove Docker Images
+
+#+begin_src bash
+docker rmi tts-base:local
+docker rmi tts-gateway:local tts-parler:local tts-piper:local tts-xtts:local
+docker rmi tts-dia:local tts-gptsovits:local tts-toucan:local
+#+end_src
+
+** Remove Generated Files
+
+#+begin_src bash
+rm -rf docs/scripts/work/
+rm -f docs/scripts/*.wav docs/scripts/*.log
+#+end_src
+
+* References
+
+- [[file:scripts/README.md][docs/scripts/README.md]] - Quick reference for running scripts
+- [[file:architecture.md][docs/architecture.md]] - System architecture overview
+- [[file:prd.md][docs/prd.md]] - Product requirements
+- [[https://github.com/erew123/alltalk_tts][AllTalk TTS GitHub]]
+- [[https://huggingface.co/parler-tts/parler-tts-mini-v1][Parler TTS on HuggingFace]]
+- [[https://github.com/rhasspy/piper][Piper TTS GitHub]]
+- [[https://github.com/coqui-ai/TTS][Coqui TTS (XTTS) GitHub]]
+- [[https://wiki.archlinux.org/title/Docker][Arch Linux Docker Wiki]]
+- [[https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html][NVIDIA Container Toolkit Installation]]

@@ -1,6 +1,6 @@
 //! Generate tab with model-specific UIs.
 
-use crate::state::{ModelKind, ParlerState, PiperState, StatusLevel};
+use crate::state::{ModelKind, ParlerState, PiperState, StatusLevel, XttsState};
 use gloo_net::http::Request;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
@@ -14,18 +14,41 @@ const PARLER_SPEAKERS: &[&str] = &[
 
 const PIPER_VOICES: &[&str] = &["en_US-amy-medium"];
 
+const XTTS_LANGUAGES: &[(&str, &str)] = &[
+    ("en", "English"),
+    ("es", "Spanish"),
+    ("fr", "French"),
+    ("de", "German"),
+    ("it", "Italian"),
+    ("pt", "Portuguese"),
+    ("pl", "Polish"),
+    ("tr", "Turkish"),
+    ("ru", "Russian"),
+    ("nl", "Dutch"),
+    ("cs", "Czech"),
+    ("ar", "Arabic"),
+    ("zh-cn", "Chinese"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
+    ("hu", "Hungarian"),
+];
+
 /// Properties for GenerateTab component.
 #[derive(Properties, PartialEq)]
 pub struct GenerateTabProps {
     pub model: ModelKind,
     pub parler: ParlerState,
     pub piper: PiperState,
+    pub xtts: XttsState,
     pub api_url: String,
     pub on_parler_text_change: Callback<String>,
     pub on_parler_speaker_change: Callback<String>,
     pub on_parler_description_change: Callback<String>,
     pub on_piper_text_change: Callback<String>,
     pub on_piper_voice_change: Callback<String>,
+    pub on_xtts_text_change: Callback<String>,
+    pub on_xtts_voice_change: Callback<String>,
+    pub on_xtts_language_change: Callback<String>,
     pub on_audio_received: Callback<String>,
     pub on_status_change: Callback<(String, StatusLevel)>,
 }
@@ -36,7 +59,10 @@ pub fn generate_tab(props: &GenerateTabProps) -> Html {
     let content = match props.model {
         ModelKind::Parler => render_parler_form(props),
         ModelKind::Piper => render_piper_form(props),
-        ModelKind::Xtts => html! { <div class="xtts-placeholder">{"XTTS coming soon..."}</div> },
+        // All cloning engines use similar form
+        ModelKind::Xtts | ModelKind::GptSovits | ModelKind::Dia | ModelKind::Toucan => {
+            render_xtts_form(props)
+        }
     };
     html! { <div class="generate-tab"><h2>{"Generate Speech"}</h2>{content}</div> }
 }
@@ -264,10 +290,176 @@ async fn generate_parler(_api_url: &str, text: &str, description: &str) -> Resul
     create_blob_url(&bytes, "audio/wav")
 }
 
+/// Render XTTS voice cloning form.
+fn render_xtts_form(props: &GenerateTabProps) -> Html {
+    let state = &props.xtts;
+
+    let on_text_input = {
+        let cb = props.on_xtts_text_change.clone();
+        Callback::from(move |e: InputEvent| {
+            if let Some(input) = e
+                .target()
+                .and_then(|t| t.dyn_into::<HtmlTextAreaElement>().ok())
+            {
+                cb.emit(input.value());
+            }
+        })
+    };
+
+    let on_voice_change = {
+        let cb = props.on_xtts_voice_change.clone();
+        Callback::from(move |e: Event| {
+            if let Some(select) = e
+                .target()
+                .and_then(|t| t.dyn_into::<HtmlSelectElement>().ok())
+            {
+                cb.emit(select.value());
+            }
+        })
+    };
+
+    let on_language_change = {
+        let cb = props.on_xtts_language_change.clone();
+        Callback::from(move |e: Event| {
+            if let Some(select) = e
+                .target()
+                .and_then(|t| t.dyn_into::<HtmlSelectElement>().ok())
+            {
+                cb.emit(select.value());
+            }
+        })
+    };
+
+    let on_generate = {
+        let api_url = props.api_url.clone();
+        let text = state.text.clone();
+        let voice = state.voice.clone();
+        let language = state.language.clone();
+        let on_audio = props.on_audio_received.clone();
+        let on_status = props.on_status_change.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let api_url = api_url.clone();
+            let text = text.clone();
+            let voice = voice.clone();
+            let language = language.clone();
+            let on_audio = on_audio.clone();
+            let on_status = on_status.clone();
+
+            if text.trim().is_empty() {
+                on_status.emit(("Please enter text to speak".into(), StatusLevel::Warning));
+                return;
+            }
+
+            if voice.is_empty() {
+                on_status.emit((
+                    "Please select a voice (import one in Settings tab first)".into(),
+                    StatusLevel::Warning,
+                ));
+                return;
+            }
+
+            on_status.emit(("Generating audio with XTTS...".into(), StatusLevel::Info));
+
+            spawn_local(async move {
+                let result = generate_xtts(&api_url, &text, &voice, &language).await;
+                match result {
+                    Ok(blob_url) => on_audio.emit(blob_url),
+                    Err(e) => on_status.emit((format!("Error: {}", e), StatusLevel::Error)),
+                }
+            });
+        })
+    };
+
+    let voice_options = state.available_voices.iter().map(|v| {
+        html! { <option value={v.clone()} selected={*v == state.voice}>{v}</option> }
+    });
+
+    let language_options = XTTS_LANGUAGES.iter().map(|(code, name)| {
+        html! { <option value={*code} selected={*code == state.language}>{name}</option> }
+    });
+
+    let has_voices = !state.available_voices.is_empty();
+
+    html! {
+        <div class="xtts-form">
+            <p class="form-hint">
+                {"XTTS uses voice cloning. Import reference audio in the Settings tab first."}
+            </p>
+            <div class="form-group">
+                <label>{"Text to speak:"}</label>
+                <textarea
+                    class="text-input"
+                    rows="4"
+                    value={state.text.clone()}
+                    placeholder="Enter text..."
+                    oninput={on_text_input}
+                />
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label>{"Voice:"}</label>
+                    <select class="voice-select" onchange={on_voice_change} disabled={!has_voices}>
+                        {if !has_voices {
+                            html! { <option>{"(No voices - import in Settings)"}</option> }
+                        } else {
+                            html! { {for voice_options} }
+                        }}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>{"Language:"}</label>
+                    <select class="language-select" onchange={on_language_change}>
+                        {for language_options}
+                    </select>
+                </div>
+            </div>
+            <button
+                class="btn btn-primary generate-btn"
+                onclick={on_generate}
+                disabled={!has_voices}
+            >
+                {"Generate Audio"}
+            </button>
+        </div>
+    }
+}
+
 /// Generate audio using Piper TTS API.
 /// Uses relative URL /api/tts-generate which is proxied by the local server.
 async fn generate_piper(_api_url: &str, text: &str) -> Result<String, String> {
     let body = format!("text_input={}&engine=piper", urlencoding(text));
+
+    let response = Request::post("/api/tts-generate")
+        .header("Content-Type", "application/x-www-form-urlencoded")
+        .body(body)
+        .map_err(|e| e.to_string())?
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if !response.ok() {
+        let err_text = response.text().await.unwrap_or_default();
+        return Err(format!("API error: {}", err_text));
+    }
+
+    let bytes = response.binary().await.map_err(|e| e.to_string())?;
+    create_blob_url(&bytes, "audio/wav")
+}
+
+/// Generate audio using XTTS voice cloning API.
+async fn generate_xtts(
+    _api_url: &str,
+    text: &str,
+    voice: &str,
+    language: &str,
+) -> Result<String, String> {
+    let body = format!(
+        "text_input={}&engine=xtts&voice={}&language={}",
+        urlencoding(text),
+        urlencoding(voice),
+        urlencoding(language)
+    );
 
     let response = Request::post("/api/tts-generate")
         .header("Content-Type", "application/x-www-form-urlencoded")

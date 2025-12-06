@@ -42,3 +42,9 @@ coverage/
 
 # Windows
 Thumbs.db
+
+# Docker scripts - generated work directories and test outputs
+docs/scripts/work/
+docs/scripts/*.wav
+docs/scripts/*.log
+docs/scripts/bak/

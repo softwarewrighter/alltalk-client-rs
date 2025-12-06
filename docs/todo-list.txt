@@ -1,0 +1,14 @@
+TTS Backend - Future Improvements
+==================================
+
+[ ] Simplify to English language only
+    - Remove multi-language support from voice cloning engines
+    - Reduce model sizes and complexity
+    - Faster inference for English-only use case
+
+[ ] Persist model downloads on host filesystem
+    - Mount HuggingFace cache from host to container
+    - Add volume mapping for ~/.cache/huggingface in compose
+    - First run downloads models, subsequent runs use cached
+    - Reduces container startup time significantly
+    - Example: volumes: - ~/.cache/huggingface:/root/.cache/huggingface
