@@ -6,7 +6,7 @@ A Rust CLI and web UI for controlling TTS (Text-to-Speech) synthesis via an AllT
 
 alltalk-client-rs provides precise control over text-to-speech synthesis with support for:
 
-- Multiple TTS engines (Parler, Piper, XTTS) via AllTalk v2
+- Multiple TTS engines (Parler, Piper, XTTS) via AllTalk gateway
 - Deterministic pause and silence control
 - Structured scripts with per-segment configuration
 - Multi-speaker podcast generation
@@ -17,20 +17,33 @@ alltalk-client-rs provides precise control over text-to-speech synthesis with su
 ## Architecture
 
 ```
-+-------------------+     +-------------------+     +-------------------+
-|   ttsctl CLI      | --> |   AllTalk v2      | --> |   TTS Engines     |
-|   (Rust/Axum)     |     |   (Gateway)       |     |   Parler/Piper    |
-+-------------------+     +-------------------+     +-------------------+
-        |
-        v
-+-------------------+
+                                            GPU Server (Docker)
+                                    ┌─────────────────────────────────────┐
+                                    │  AllTalk Gateway (:5157)            │
+                                    │  ├── Parler  (GPU, :8001)           │
++-------------------+               │  ├── Piper   (CPU, :8002)           │
+|   ttsctl CLI      | ──────────────│  └── XTTS    (GPU, :8003)           │
+|   + Web UI Server |               ├─────────────────────────────────────┤
+|   (Rust/Axum)     |               │  Standalone Backends                │
++-------------------+               │  ├── Dia        (:1110) Apache 2.0  │
+        │                           │  ├── GPT-SoVITS (:6910) MIT         │
+        ▼                           │  └── Toucan     (:1721)             │
++-------------------+               └─────────────────────────────────────┘
 |   Web UI (WASM)   |
 |   (Yew/Trunk)     |
 +-------------------+
 ```
 
-The web UI runs in the browser (WASM) and communicates with the local ttsctl server,
-which proxies requests to the AllTalk backend.
+The ttsctl server proxies API requests to TTS backends running on a GPU server:
+
+| Backend | Port | Engines | License | Use Case |
+|---------|------|---------|---------|----------|
+| AllTalk | 5157 | Parler, Piper, XTTS | Mixed | Primary gateway (3 engines) |
+| Dia | 1110 | Dia | Apache 2.0 | Dialogue-focused, commercial OK |
+| GPT-SoVITS | 6910 | GPT-SoVITS | MIT | Voice cloning, commercial OK |
+| Toucan | 1721 | Toucan | - | Multilingual synthesis |
+
+**Note:** XTTS uses CPML license (non-commercial only). For commercial use, prefer Dia or GPT-SoVITS.
 
 ## Components
 
@@ -46,7 +59,7 @@ which proxies requests to the AllTalk backend.
 
 - Rust 1.82+ (2024 edition)
 - Trunk (for WASM builds): `cargo install trunk`
-- AllTalk v2 backend running (default: http://localhost:7851)
+- AllTalk backend running (see [Backend Setup](docs/backend-setup.org))
 
 ### Build
 
@@ -62,11 +75,11 @@ cd components/tts-web/crates/tts-web-ui && trunk build --release
 ### Run Web UI
 
 ```bash
-# With default backend (localhost:7851)
+# With default backend (localhost:5157)
 ttsctl -w
 
 # With custom backend URL
-ttsctl -w --backend-url http://your-backend:7851
+ttsctl -w --backend-url http://gpu-server:5157
 
 # With config file
 ttsctl -c config.toml -w
@@ -75,7 +88,7 @@ ttsctl -c config.toml -w
 ttsctl -w -b 0.0.0.0:8080
 ```
 
-Open http://localhost:5157 in your browser.
+Open http://localhost:8080 in your browser (or the address specified with `-b`).
 
 ### Render Script (CLI)
 
@@ -88,20 +101,31 @@ ttsctl -s script.yaml -o output.wav
 Create a `config.toml` file:
 
 ```toml
-# Backend AllTalk server URL
-alltalk_url = "http://localhost:7851"
-
-# Default TTS engine (parler, piper, xtts)
+# Default TTS engine
 default_engine = "parler"
 
 # Default sample rate in Hz
 default_sample_rate = 24000
+
+# Backend configurations
+[backends.alltalk]
+url = "http://gpu-server:5157"
+
+[backends.dia]
+url = "http://gpu-server:1110"
+
+[backends.gptsovits]
+url = "http://gpu-server:6910"
 
 # Speaker profiles (optional)
 [speakers.mike]
 engine = "parler"
 voice_id = "Jon"
 default_emotion = "confident"
+
+[speakers.narrator]
+engine = "piper"
+length_scale = 0.9
 ```
 
 ## Script Format
@@ -128,6 +152,15 @@ segments:
 
 ## Documentation
 
+### Backend Deployment
+
+| Document | Description |
+|----------|-------------|
+| [docs/scripts/README.md](docs/scripts/README.md) | Quick start for Docker TTS backends |
+| [docs/backend-setup.org](docs/backend-setup.org) | Detailed backend setup (Arch Linux + GPU) |
+
+### Project Documentation
+
 | Document | Description |
 |----------|-------------|
 | [docs/prd.md](docs/prd.md) | Product Requirements Document |
@@ -135,6 +168,11 @@ segments:
 | [docs/design.md](docs/design.md) | Detailed design specifications |
 | [docs/plan.md](docs/plan.md) | Implementation plan and phases |
 | [docs/status.md](docs/status.md) | Current project status |
+
+### Development Guides
+
+| Document | Description |
+|----------|-------------|
 | [docs/ai_agent_instructions.md](docs/ai_agent_instructions.md) | Instructions for AI coding agents |
 | [docs/tools.md](docs/tools.md) | Development tools and setup |
 | [docs/process.md](docs/process.md) | Development process guidelines |
@@ -157,9 +195,28 @@ Fast, local TTS with ONNX models:
 - Speed, noise, and silence controls
 - Multi-speaker model support
 
-### XTTS (Coming Soon)
+### XTTS
 
-Voice cloning with reference audio support.
+Voice cloning with reference audio:
+
+- Clone any voice from a short audio sample
+- High-quality neural synthesis (GPU required)
+- **License:** CPML (non-commercial use only)
+
+### Dia
+
+Dialogue-focused TTS:
+
+- Optimized for conversational speech
+- **License:** Apache 2.0 (commercial use allowed)
+
+### GPT-SoVITS
+
+Advanced voice cloning:
+
+- Few-shot voice cloning from minimal samples
+- High fidelity reproduction
+- **License:** MIT (commercial use allowed)
 
 ## Development
 
@@ -167,21 +224,25 @@ Voice cloning with reference audio support.
 
 ```
 alltalk-client-rs/
-+-- components/
-|   +-- tts-spec/        # Core data types and parsing
-|   |   +-- crates/
-|   |       +-- tts-spec-model/   # Data types
-|   |       +-- tts-spec-script/  # Script parsing
-|   |       +-- tts-spec-layout/  # Timeline layout
-|   +-- tts-cli/         # CLI application
-|   |   +-- crates/
-|   |       +-- ttsctl/           # Main CLI binary
-|   +-- tts-web/         # Web UI
-|       +-- crates/
-|           +-- tts-web-ui/       # Yew WASM frontend
-|           +-- tts-web-server/   # Static file server
-+-- docs/                # Documentation
-+-- scripts/             # Build and utility scripts
+├── components/
+│   ├── tts-spec/           # Core data types and parsing
+│   │   └── crates/
+│   │       ├── tts-spec-model/    # Data types
+│   │       ├── tts-spec-script/   # Script parsing
+│   │       └── tts-spec-layout/   # Timeline layout
+│   ├── tts-cli/            # CLI application
+│   │   └── crates/
+│   │       └── ttsctl/            # Main CLI binary
+│   └── tts-web/            # Web UI
+│       └── crates/
+│           └── tts-web-ui/        # Yew WASM frontend
+├── docs/
+│   └── scripts/            # Docker backend deployment scripts
+│       ├── at-*.sh         # AllTalk stack (gateway + 3 engines)
+│       ├── dia-*.sh        # Dia standalone
+│       ├── gpt-*.sh        # GPT-SoVITS standalone
+│       └── tou-*.sh        # Toucan standalone
+└── scripts/                # Build and utility scripts
 ```
 
 ### Quality Gates
