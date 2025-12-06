@@ -186,6 +186,7 @@ Neural TTS with natural language voice control:
 - 16 named speakers (Jon, Lea, Gary, Jenna, etc.)
 - Natural language descriptions for voice characteristics
 - Temperature and sampling controls
+- **License:** Apache 2.0 (commercial use allowed)
 
 ### Piper TTS
 
@@ -194,6 +195,7 @@ Fast, local TTS with ONNX models:
 - Multiple voice models available
 - Speed, noise, and silence controls
 - Multi-speaker model support
+- **License:** MIT (commercial use allowed)
 
 ### XTTS
 
@@ -267,7 +269,7 @@ sw-checklist            # Project standards
 
 ## License
 
-MIT OR Apache-2.0
+MIT
 
 ## Copyright
 
