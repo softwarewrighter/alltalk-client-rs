@@ -1,6 +1,7 @@
 //! Generate tab with model-specific UIs.
 
-use crate::state::{ModelKind, ParlerState, PiperState, StatusLevel, XttsState};
+use crate::state::{EngineInfo, ModelKind, ParlerState, PiperState, StatusLevel, XttsState};
+use crate::widgets::{BackendDownWarning, NonCommercialWarning};
 use gloo_net::http::Request;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::spawn_local;
@@ -37,6 +38,7 @@ const XTTS_LANGUAGES: &[(&str, &str)] = &[
 #[derive(Properties, PartialEq)]
 pub struct GenerateTabProps {
     pub model: ModelKind,
+    pub engine_info: Option<EngineInfo>,
     pub parler: ParlerState,
     pub piper: PiperState,
     pub xtts: XttsState,
@@ -56,15 +58,37 @@ pub struct GenerateTabProps {
 /// Generate tab that switches between model-specific UIs.
 #[function_component(GenerateTab)]
 pub fn generate_tab(props: &GenerateTabProps) -> Html {
-    let content = match props.model {
-        ModelKind::Parler => render_parler_form(props),
-        ModelKind::Piper => render_piper_form(props),
-        // All cloning engines use similar form
-        ModelKind::Xtts | ModelKind::GptSovits | ModelKind::Dia | ModelKind::Toucan => {
-            render_xtts_form(props)
+    let backend_available = props
+        .engine_info
+        .as_ref()
+        .map(|e| e.available)
+        .unwrap_or(true);
+
+    let content = if !backend_available {
+        html! {
+            <p class="backend-down-notice">
+                {"Generation is unavailable while the backend is down."}
+            </p>
+        }
+    } else {
+        match props.model {
+            ModelKind::Parler => render_parler_form(props),
+            ModelKind::Piper => render_piper_form(props),
+            // All cloning engines use similar form
+            ModelKind::Xtts | ModelKind::GptSovits | ModelKind::Dia | ModelKind::Toucan => {
+                render_cloning_form(props)
+            }
         }
     };
-    html! { <div class="generate-tab"><h2>{"Generate Speech"}</h2>{content}</div> }
+
+    html! {
+        <div class="generate-tab">
+            <h2>{"Generate Speech"}</h2>
+            <NonCommercialWarning model={props.model.clone()} />
+            <BackendDownWarning engine_info={props.engine_info.clone()} />
+            {content}
+        </div>
+    }
 }
 
 /// Render Parler TTS form.
@@ -290,8 +314,8 @@ async fn generate_parler(_api_url: &str, text: &str, description: &str) -> Resul
     create_blob_url(&bytes, "audio/wav")
 }
 
-/// Render XTTS voice cloning form.
-fn render_xtts_form(props: &GenerateTabProps) -> Html {
+/// Render voice cloning form (used by XTTS, Dia, GPT-SoVITS, Toucan).
+fn render_cloning_form(props: &GenerateTabProps) -> Html {
     let state = &props.xtts;
 
     let on_text_input = {
@@ -359,7 +383,7 @@ fn render_xtts_form(props: &GenerateTabProps) -> Html {
                 return;
             }
 
-            on_status.emit(("Generating audio with XTTS...".into(), StatusLevel::Info));
+            on_status.emit(("Generating audio...".into(), StatusLevel::Info));
 
             spawn_local(async move {
                 let result = generate_xtts(&api_url, &text, &voice, &language).await;
@@ -381,10 +405,12 @@ fn render_xtts_form(props: &GenerateTabProps) -> Html {
 
     let has_voices = !state.available_voices.is_empty();
 
+    let model_name = props.model.display_name();
+
     html! {
-        <div class="xtts-form">
+        <div class="cloning-form">
             <p class="form-hint">
-                {"XTTS uses voice cloning. Import reference audio in the Settings tab first."}
+                {format!("{} uses voice cloning. Import reference audio in the Settings tab first.", model_name)}
             </p>
             <div class="form-group">
                 <label>{"Text to speak:"}</label>

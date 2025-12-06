@@ -1,6 +1,7 @@
 //! Settings tab with model-specific configuration and voice training.
 
-use crate::state::{ModelKind, StatusLevel, TrainingState};
+use crate::state::{EngineInfo, ModelKind, StatusLevel, TrainingState};
+use crate::widgets::{BackendDownWarning, VoiceList};
 use gloo_net::http::Request;
 use js_sys::{Array, Uint8Array};
 use wasm_bindgen::JsCast;
@@ -16,6 +17,7 @@ use yew::prelude::*;
 #[derive(Properties, PartialEq)]
 pub struct SettingsTabProps {
     pub model: ModelKind,
+    pub engine_info: Option<EngineInfo>,
     pub api_url: String,
     pub training: TrainingState,
     pub on_api_url_change: Callback<String>,
@@ -25,6 +27,8 @@ pub struct SettingsTabProps {
     pub on_audio_change: Callback<Option<Vec<u8>>>,
     pub on_status_change: Callback<(String, StatusLevel)>,
     pub on_voices_refresh: Callback<Vec<String>>,
+    pub on_voice_select: Callback<String>,
+    pub on_voice_delete: Callback<String>,
 }
 
 /// Settings tab with model-specific options and voice training.
@@ -32,6 +36,11 @@ pub struct SettingsTabProps {
 pub fn settings_tab(props: &SettingsTabProps) -> Html {
     let supports_training = props.model.supports_cloning();
     let model_name = props.model.display_name();
+    let backend_available = props
+        .engine_info
+        .as_ref()
+        .map(|e| e.available)
+        .unwrap_or(true);
 
     let on_url_change = {
         let cb = props.on_api_url_change.clone();
@@ -45,9 +54,19 @@ pub fn settings_tab(props: &SettingsTabProps) -> Html {
         })
     };
 
+    // Get selected voice from XTTS state (if any)
+    let selected_voice = props
+        .training
+        .backend_voices
+        .iter()
+        .find(|v| v.name == props.training.voice_name)
+        .map(|v| v.name.clone());
+
     html! {
         <div class="settings-tab">
             <h2>{format!("{} Settings", model_name)}</h2>
+            <BackendDownWarning engine_info={props.engine_info.clone()} />
+
             <div class="form-group">
                 <label>{"AllTalk API URL:"}</label>
                 <input
@@ -58,20 +77,38 @@ pub fn settings_tab(props: &SettingsTabProps) -> Html {
                 />
                 <span class="field-hint">{"Enter the URL of your TTS backend"}</span>
             </div>
+
             <div class={classes!("training-section", (!supports_training).then_some("disabled"))}>
                 <h3>{"Voice Training"}</h3>
                 {render_training_hint(supports_training, model_name)}
-                {if supports_training {
+                {if supports_training && backend_available {
                     html! {
-                        <TrainingForm
-                            training={props.training.clone()}
-                            on_voice_name_change={props.on_voice_name_change.clone()}
-                            on_transcript_change={props.on_transcript_change.clone()}
-                            on_recording_change={props.on_recording_change.clone()}
-                            on_audio_change={props.on_audio_change.clone()}
-                            on_status_change={props.on_status_change.clone()}
-                            on_voices_refresh={props.on_voices_refresh.clone()}
-                        />
+                        <>
+                            <div class="voice-management">
+                                <h4>{"Imported Voices"}</h4>
+                                <VoiceList
+                                    voices={props.training.backend_voices.clone()}
+                                    selected={selected_voice}
+                                    on_select={props.on_voice_select.clone()}
+                                    on_delete={props.on_voice_delete.clone()}
+                                />
+                            </div>
+                            <TrainingForm
+                                training={props.training.clone()}
+                                on_voice_name_change={props.on_voice_name_change.clone()}
+                                on_transcript_change={props.on_transcript_change.clone()}
+                                on_recording_change={props.on_recording_change.clone()}
+                                on_audio_change={props.on_audio_change.clone()}
+                                on_status_change={props.on_status_change.clone()}
+                                on_voices_refresh={props.on_voices_refresh.clone()}
+                            />
+                        </>
+                    }
+                } else if supports_training && !backend_available {
+                    html! {
+                        <p class="backend-down-notice">
+                            {"Voice training is unavailable while the backend is down."}
+                        </p>
                     }
                 } else {
                     render_disabled_form()

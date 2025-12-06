@@ -6,29 +6,72 @@ default_engine = "parler"
 # Default sample rate in Hz
 default_sample_rate = 24000
 
+# Engine definitions with metadata
+# Each engine specifies its backend, license, and capabilities
+
+[engines.parler]
+name = "Parler"
+backend = "alltalk"
+api_type = "gateway"
+license = "Apache-2.0"
+commercial = true
+cloning = false
+
+[engines.piper]
+name = "Piper"
+backend = "alltalk"
+api_type = "gateway"
+license = "MIT"
+commercial = true
+cloning = false
+
+[engines.xtts]
+name = "XTTS"
+backend = "alltalk"
+api_type = "gateway"
+license = "CPML"
+commercial = false
+cloning = true
+
+[engines.dia]
+name = "Dia"
+backend = "dia"
+api_type = "standalone"
+license = "Apache-2.0"
+commercial = true
+cloning = true
+
+[engines.gptsovits]
+name = "GPT-SoVITS"
+backend = "gptsovits"
+api_type = "standalone"
+license = "MIT"
+commercial = true
+cloning = true
+
+[engines.toucan]
+name = "Toucan"
+backend = "toucan"
+api_type = "standalone"
+license = "Apache-2.0"
+commercial = true
+cloning = true
+
 # Backend servers configuration
 # Each backend can run on different hosts for distributed setups
 
 [backends.alltalk]
-# AllTalk handles: parler, piper, xtts
 host = "curiosity"
 port = 5157
-engines = ["parler", "piper", "xtts"]
 
 [backends.dia]
-# Dia 1.6B - Apache 2.0, dialogue TTS
 host = "curiosity"
 port = 1110
-engines = ["dia"]
 
 [backends.gptsovits]
-# GPT-SoVITS - MIT, voice cloning
 host = "curiosity"
 port = 6910
-engines = ["gptsovits"]
 
 [backends.toucan]
-# IMS-Toucan - Apache 2.0, multilingual TTS
 host = "curiosity"
 port = 1721
-engines = ["toucan"]

@@ -3,7 +3,7 @@
 use crate::generate::GenerateTab;
 use crate::state::{AppState, EngineInfo, ModelKind, StatusLevel, TabKind};
 use crate::training::SettingsTab;
-use crate::widgets::{AudioPlayer, Footer, Header, NonCommercialWarning, StatusBar, TabBar};
+use crate::widgets::{AudioPlayer, Footer, Header, StatusBar, TabBar};
 use gloo_net::http::Request;
 use wasm_bindgen_futures::spawn_local;
 use yew::prelude::*;
@@ -223,47 +223,82 @@ pub fn app() -> Html {
         })
     };
 
+    let on_voice_select = {
+        let state = state.clone();
+        Callback::from(move |name: String| {
+            let mut new_state = (*state).clone();
+            new_state.set_training_voice_name(name.clone());
+            new_state.set_xtts_voice(name);
+            state.set(new_state);
+        })
+    };
+
+    let on_voice_delete = {
+        let state = state.clone();
+        Callback::from(move |name: String| {
+            let mut new_state = (*state).clone();
+            // Remove from backend_voices
+            new_state.training.backend_voices.retain(|v| v.name != name);
+            // Remove from xtts voices
+            new_state.xtts.available_voices.retain(|v| *v != name);
+            // Clear selection if it was the deleted voice
+            if new_state.training.voice_name == name {
+                new_state.training.voice_name.clear();
+            }
+            if new_state.xtts.voice == name {
+                new_state.xtts.voice = new_state
+                    .xtts
+                    .available_voices
+                    .first()
+                    .cloned()
+                    .unwrap_or_default();
+            }
+            state.set(new_state);
+        })
+    };
+
     let on_status_change_settings = on_status_change.clone();
+
+    // Get current engine info
+    let current_engine_info = state.current_engine_info().cloned();
 
     let tab_content = match state.active_tab {
         TabKind::Settings => html! {
-            <>
-                <NonCommercialWarning model={state.active_model.clone()} />
-                <SettingsTab
-                    model={state.active_model.clone()}
-                    api_url={state.api_url.clone()}
-                    training={state.training.clone()}
-                    on_api_url_change={on_api_url_change}
-                    on_voice_name_change={on_voice_name_change}
-                    on_transcript_change={on_transcript_change}
-                    on_recording_change={on_recording_change}
-                    on_audio_change={on_audio_change}
-                    on_status_change={on_status_change_settings}
-                    on_voices_refresh={on_voices_refresh}
-                />
-            </>
+            <SettingsTab
+                model={state.active_model.clone()}
+                engine_info={current_engine_info.clone()}
+                api_url={state.api_url.clone()}
+                training={state.training.clone()}
+                on_api_url_change={on_api_url_change}
+                on_voice_name_change={on_voice_name_change}
+                on_transcript_change={on_transcript_change}
+                on_recording_change={on_recording_change}
+                on_audio_change={on_audio_change}
+                on_status_change={on_status_change_settings}
+                on_voices_refresh={on_voices_refresh}
+                on_voice_select={on_voice_select.clone()}
+                on_voice_delete={on_voice_delete.clone()}
+            />
         },
         TabKind::Generate => html! {
-            <>
-                <NonCommercialWarning model={state.active_model.clone()} />
-                <GenerateTab
-                    model={state.active_model.clone()}
-                    parler={state.parler.clone()}
-                    piper={state.piper.clone()}
-                    xtts={state.xtts.clone()}
-                    api_url={state.api_url.clone()}
-                    on_parler_text_change={on_parler_text_change}
-                    on_parler_speaker_change={on_parler_speaker_change}
-                    on_parler_description_change={on_parler_description_change}
-                    on_piper_text_change={on_piper_text_change}
-                    on_piper_voice_change={on_piper_voice_change}
-                    on_xtts_text_change={on_xtts_text_change}
-                    on_xtts_voice_change={on_xtts_voice_change}
-                    on_xtts_language_change={on_xtts_language_change}
-                    on_audio_received={on_audio_received}
-                    on_status_change={on_status_change}
-                />
-            </>
+            <GenerateTab
+                model={state.active_model.clone()}
+                engine_info={current_engine_info}
+                parler={state.parler.clone()}
+                piper={state.piper.clone()}
+                xtts={state.xtts.clone()}
+                api_url={state.api_url.clone()}
+                on_parler_text_change={on_parler_text_change}
+                on_parler_speaker_change={on_parler_speaker_change}
+                on_parler_description_change={on_parler_description_change}
+                on_piper_text_change={on_piper_text_change}
+                on_piper_voice_change={on_piper_voice_change}
+                on_xtts_text_change={on_xtts_text_change}
+                on_xtts_voice_change={on_xtts_voice_change}
+                on_xtts_language_change={on_xtts_language_change}
+                on_audio_received={on_audio_received}
+                on_status_change={on_status_change}
+            />
         },
     };
 

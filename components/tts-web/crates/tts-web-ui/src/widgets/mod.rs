@@ -1,6 +1,8 @@
 //! Reusable UI widgets for the TTS web application.
 
-use crate::state::{EngineInfo, ModelKind, PlayerState, StatusLevel, StatusMessage, TabKind};
+use crate::state::{
+    EngineInfo, ModelKind, PlayerState, StatusLevel, StatusMessage, TabKind, VoiceRecord,
+};
 use yew::prelude::*;
 
 /// Properties for Header component.
@@ -188,6 +190,103 @@ pub fn non_commercial_warning(props: &NonCommercialWarningProps) -> Html {
                 {" — XTTS is licensed under CPML which prohibits commercial use. "}
                 {"For commercial projects, use GPT-SoVITS (MIT) or Dia (Apache 2.0)."}
             </span>
+        </div>
+    }
+}
+
+/// Properties for BackendDownWarning component.
+#[derive(Properties, PartialEq)]
+pub struct BackendDownWarningProps {
+    pub engine_info: Option<EngineInfo>,
+}
+
+/// Warning banner when backend is unavailable.
+#[function_component(BackendDownWarning)]
+pub fn backend_down_warning(props: &BackendDownWarningProps) -> Html {
+    let Some(info) = &props.engine_info else {
+        return html! {};
+    };
+
+    if info.available {
+        return html! {};
+    }
+
+    html! {
+        <div class="warning-banner backend-down">
+            <span class="warning-icon">{"🔌"}</span>
+            <span class="warning-text">
+                <strong>{"BACKEND UNAVAILABLE"}</strong>
+                {format!(" — The {} backend is not responding. Check that the server is running.", info.name)}
+            </span>
+        </div>
+    }
+}
+
+/// Properties for VoiceList component.
+#[derive(Properties, PartialEq)]
+pub struct VoiceListProps {
+    pub voices: Vec<VoiceRecord>,
+    pub selected: Option<String>,
+    pub on_select: Callback<String>,
+    pub on_delete: Callback<String>,
+}
+
+/// Voice list with selection and delete actions.
+#[function_component(VoiceList)]
+pub fn voice_list(props: &VoiceListProps) -> Html {
+    if props.voices.is_empty() {
+        return html! {
+            <div class="voice-list empty">
+                {"No voices available. Record or upload a sample to get started."}
+            </div>
+        };
+    }
+
+    let items = props.voices.iter().map(|voice| {
+        let is_selected = props.selected.as_ref() == Some(&voice.name);
+        let class = if is_selected {
+            "voice-item selected"
+        } else {
+            "voice-item"
+        };
+
+        let name = voice.name.clone();
+        let on_select = props.on_select.clone();
+        let onclick = {
+            let name = name.clone();
+            Callback::from(move |_| on_select.emit(name.clone()))
+        };
+
+        let on_delete = props.on_delete.clone();
+        let ondelete = {
+            let name = name.clone();
+            Callback::from(move |e: MouseEvent| {
+                e.stop_propagation();
+                on_delete.emit(name.clone());
+            })
+        };
+
+        html! {
+            <div class={class} onclick={onclick}>
+                <span class="voice-name">{&voice.name}</span>
+                {if voice.is_local {
+                    html! { <span class="voice-badge local">{"Local"}</span> }
+                } else {
+                    html! {}
+                }}
+                {if let Some(transcript) = &voice.transcript {
+                    html! { <span class="voice-transcript">{transcript}</span> }
+                } else {
+                    html! {}
+                }}
+                <button class="btn-delete" onclick={ondelete} title="Delete voice">{"×"}</button>
+            </div>
+        }
+    });
+
+    html! {
+        <div class="voice-list">
+            {for items}
         </div>
     }
 }

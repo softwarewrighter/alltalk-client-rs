@@ -163,6 +163,15 @@ impl Default for XttsState {
     }
 }
 
+/// A voice record from the backend or local storage.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct VoiceRecord {
+    pub name: String,
+    pub engine: ModelKind,
+    pub transcript: Option<String>,
+    pub is_local: bool,
+}
+
 /// Voice training state for recording/uploading reference audio.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct TrainingState {
@@ -171,6 +180,9 @@ pub struct TrainingState {
     pub is_recording: bool,
     pub audio_blob: Option<Vec<u8>>,
     pub upload_progress: Option<f32>,
+    pub backend_voices: Vec<VoiceRecord>,
+    pub local_preview_url: Option<String>,
+    pub target_engine: Option<ModelKind>,
 }
 
 /// Audio player state.
@@ -368,5 +380,36 @@ impl AppState {
     /// Set audio blob from recording or upload.
     pub fn set_training_audio(&mut self, audio: Option<Vec<u8>>) {
         self.training.audio_blob = audio;
+    }
+
+    /// Check if the current engine is available.
+    pub fn is_current_engine_available(&self) -> bool {
+        self.available_engines
+            .iter()
+            .find(|e| e.to_model_kind() == Some(self.active_model.clone()))
+            .map(|e| e.available)
+            .unwrap_or(false)
+    }
+
+    /// Get info for the current engine.
+    pub fn current_engine_info(&self) -> Option<&EngineInfo> {
+        self.available_engines
+            .iter()
+            .find(|e| e.to_model_kind() == Some(self.active_model.clone()))
+    }
+
+    /// Set backend voices.
+    pub fn set_backend_voices(&mut self, voices: Vec<VoiceRecord>) {
+        self.training.backend_voices = voices;
+    }
+
+    /// Set local preview URL.
+    pub fn set_local_preview_url(&mut self, url: Option<String>) {
+        self.training.local_preview_url = url;
+    }
+
+    /// Set target engine for cloning.
+    pub fn set_target_engine(&mut self, engine: Option<ModelKind>) {
+        self.training.target_engine = engine;
     }
 }

@@ -12,7 +12,30 @@ alltalk-client-rs provides precise control over text-to-speech synthesis with su
 - Multi-speaker podcast generation
 - Web UI for interactive TTS generation
 
-![TTS Web UI Generate Screen](images/screenshot.png?ts=1733341289000)
+## Screenshots
+
+### Generate Tab - Parler TTS
+![Generate Tab with Parler](components/tts-web/images/generate-parler.png?ts=1733500800000)
+
+### Generate Tab - XTTS with Non-Commercial Warning
+XTTS uses the CPML license which prohibits commercial use. The UI displays a prominent warning.
+
+![Generate Tab with XTTS Warning](components/tts-web/images/generate-xtts-warning.png?ts=1733500800000)
+
+### Generate Tab - Dia (Commercial-Friendly Cloning)
+Dia supports voice cloning with an Apache 2.0 license, making it suitable for commercial projects.
+
+![Generate Tab with Dia](components/tts-web/images/generate-dia.png?ts=1733500800000)
+
+### Settings Tab - Voice Training (XTTS)
+Import reference audio for voice cloning via drag-and-drop or microphone recording.
+
+![Settings Tab with Voice Training](components/tts-web/images/settings-xtts-training.png?ts=1733500800000)
+
+### Settings Tab - Training Disabled (Piper)
+Non-cloning engines like Piper show a disabled training section.
+
+![Settings Tab Training Disabled](components/tts-web/images/settings-piper-disabled.png?ts=1733500800000)
 
 ## Architecture
 
