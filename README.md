@@ -6,7 +6,7 @@ A Rust CLI and web UI for controlling TTS (Text-to-Speech) synthesis via an AllT
 
 alltalk-client-rs provides precise control over text-to-speech synthesis with support for:
 
-- Multiple TTS engines (Parler, Piper, XTTS) via AllTalk gateway
+- 6 TTS engines: Parler, Piper, XTTS, Dia, GPT-SoVITS, Toucan
 - Deterministic pause and silence control
 - Structured scripts with per-segment configuration
 - Multi-speaker podcast generation
@@ -217,6 +217,15 @@ Advanced voice cloning:
 - Few-shot voice cloning from minimal samples
 - High fidelity reproduction
 - **License:** MIT (commercial use allowed)
+
+### Toucan
+
+Multilingual neural TTS:
+
+- Support for 7000+ languages and dialects
+- IPA-based phoneme input for precise pronunciation
+- Lightweight and fast inference
+- **License:** Apache 2.0 (commercial use allowed)
 
 ## Development
 
